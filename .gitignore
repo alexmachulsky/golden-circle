@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# AI coding-assistant config — local dev only, not for source control
+CLAUDE.md
+AGENTS.md
+.github/copilot-instructions.md
