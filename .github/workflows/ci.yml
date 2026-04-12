@@ -1,4 +1,13 @@
-name: CI
+name: CI/CD Pipeline
+
+# ─────────────────────────────────────────────
+# Pipeline stages
+#   1. build    — compile source, produce Next.js artifacts
+#   2. test     — unit tests (Vitest + React Testing Library)
+#   3. analyze  — lint, type-check, dependency audit
+#   4. package  — Docker image build + Trivy vulnerability scan
+#   5. publish  — push image to GHCR (main branch only)
+# ─────────────────────────────────────────────
 
 on:
   push:
@@ -6,15 +15,67 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-progress runs for the same branch/PR to avoid wasted quota
+# Cancel in-progress runs for the same branch/PR to save quota
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Image name shared across jobs
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
 jobs:
-  ci:
-    name: Lint, Type-check & Build
+  # ── 1. BUILD ──────────────────────────────────────────────────────────────
+  build:
+    name: Build
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+          # GROQ_API_KEY is runtime-only — not consumed by next build
+
+  # ── 2. TEST ───────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+  # ── 3. ANALYZE ────────────────────────────────────────────────────────────
+  analyze:
+    name: Code Analysis
+    runs-on: ubuntu-latest
+    needs: build
 
     steps:
       - name: Checkout
@@ -35,18 +96,51 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
-      - name: Build
-        run: npm run build
-        env:
-          NEXT_TELEMETRY_DISABLED: 1
-          # GROQ_API_KEY is runtime-only — not needed at build time
+      - name: Dependency audit
+        # Fail on HIGH or CRITICAL severity vulnerabilities
+        run: npm audit --audit-level=high
 
-  docker:
-    name: Docker Build & Publish
+  # ── 4. PACKAGE ────────────────────────────────────────────────────────────
+  package:
+    name: Package & Scan
     runs-on: ubuntu-latest
-    needs: ci
+    needs: [test, analyze]
 
-    # Required to push to GHCR via GITHUB_TOKEN
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (local load for scanning)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@0.32.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+  # ── 5. PUBLISH ────────────────────────────────────────────────────────────
+  publish:
+    name: Publish to GHCR
+    runs-on: ubuntu-latest
+    needs: package
+    # Push only on merges to main — never from PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     permissions:
       contents: read
       packages: write
@@ -58,25 +152,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Login only when we're actually going to push (merge to main)
       - name: Log in to GHCR
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build (and push on main)
+      - name: Build and push to GHCR
         uses: docker/build-push-action@v6
         with:
           context: .
           target: runner
-          # Push only on merges to main; PRs still build to verify the Dockerfile
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          push: true
           tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
-          # Persist Docker layer cache in GitHub Actions cache
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          # Reuse cached layers from the package job — no full rebuild
           cache-from: type=gha
           cache-to: type=gha,mode=max
