@@ -10,12 +10,12 @@ services:
     ports:
       - "7001:7001"
     environment:
-      - NODE_ENV=production
-      # GROQ_API_KEY is read from the .env.local file on the host;
-      # it is never baked into the image.
-      - GROQ_API_KEY=${GROQ_API_KEY}
+      NODE_ENV: production
     env_file:
-      - .env.local           # sourced automatically if it exists on the host
+      # Runtime secrets come from the host .env.local file.
+      # Do not mirror them through ${...} here: compose interpolation happens
+      # before env_file is loaded and can override the real value with empty text.
+      - .env.local
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:7001/"]
       interval: 30s

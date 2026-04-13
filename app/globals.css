@@ -18,11 +18,84 @@
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
 }
 
+:root {
+  color-scheme: dark;
+  --app-heading: #ffffff;
+  --app-overlay-glow: radial-gradient(
+    ellipse 80% 50% at 50% 0%,
+    rgba(245, 158, 11, 0.05) 0%,
+    transparent 70%
+  );
+  --scrollbar-track: #04091a;
+  --scrollbar-thumb: rgba(245, 158, 11, 0.25);
+  --scrollbar-thumb-hover: rgba(245, 158, 11, 0.45);
+  --selection-bg: rgba(245, 158, 11, 0.3);
+  --selection-fg: #fef3c7;
+  --theme-toggle-bg: rgba(10, 18, 40, 0.72);
+  --theme-toggle-border: rgba(245, 158, 11, 0.14);
+  --theme-toggle-shadow: 0 24px 80px rgba(4, 9, 26, 0.18);
+  --theme-toggle-active-bg: rgba(245, 158, 11, 0.16);
+  --theme-toggle-active-border: rgba(245, 158, 11, 0.24);
+  --theme-toggle-text: var(--color-slate-500);
+  --theme-toggle-text-active: var(--color-gold-300);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-navy-950: #fcfaf4;
+  --color-navy-900: #fffdf8;
+  --color-navy-800: #ffffff;
+  --color-navy-700: #f6ede0;
+  --color-navy-600: #e7d5b3;
+
+  --color-gold-100: #92400e;
+  --color-gold-200: #a16207;
+  --color-gold-300: #b45309;
+  --color-gold-400: #c2410c;
+  --color-gold-500: #d97706;
+  --color-gold-600: #92400e;
+  --color-gold-700: #78350f;
+
+  --color-slate-100: #0f172a;
+  --color-slate-200: #1e293b;
+  --color-slate-300: #334155;
+  --color-slate-400: #475569;
+  --color-slate-500: #64748b;
+  --color-slate-600: #94a3b8;
+  --color-slate-700: #cbd5e1;
+
+  --app-heading: #0f172a;
+  --app-overlay-glow: radial-gradient(
+    ellipse 80% 55% at 50% 0%,
+    rgba(245, 158, 11, 0.12) 0%,
+    rgba(245, 158, 11, 0.04) 46%,
+    transparent 74%
+  );
+  --scrollbar-track: #f5efe1;
+  --scrollbar-thumb: rgba(180, 83, 9, 0.22);
+  --scrollbar-thumb-hover: rgba(146, 64, 14, 0.35);
+  --selection-bg: rgba(180, 83, 9, 0.18);
+  --selection-fg: #78350f;
+  --theme-toggle-bg: rgba(255, 255, 255, 0.82);
+  --theme-toggle-border: rgba(180, 83, 9, 0.18);
+  --theme-toggle-shadow: 0 24px 80px rgba(15, 23, 42, 0.08);
+  --theme-toggle-active-bg: rgba(180, 83, 9, 0.12);
+  --theme-toggle-active-border: rgba(180, 83, 9, 0.2);
+  --theme-toggle-text: var(--color-slate-500);
+  --theme-toggle-text-active: var(--color-gold-600);
+}
+
 html,
 body {
-  background-color: #04091a;
-  color: #f1f5f9;
+  background-color: var(--color-navy-950);
+  color: var(--color-slate-100);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+body {
+  transition:
+    background-color 220ms ease,
+    color 220ms ease;
 }
 
 /* Custom scrollbar */
@@ -30,20 +103,20 @@ body {
   width: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #04091a;
+  background: var(--scrollbar-track);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(245, 158, 11, 0.25);
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(245, 158, 11, 0.45);
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Text selection */
 ::selection {
-  background: rgba(245, 158, 11, 0.3);
-  color: #fef3c7;
+  background: var(--selection-bg);
+  color: var(--selection-fg);
 }
 
 /* Print styles */
@@ -56,4 +129,3 @@ body {
     display: none !important;
   }
 }
-

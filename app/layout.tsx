@@ -1,5 +1,6 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist } from 'next/font/google';
+import { buildThemeScript } from '@/lib/theme';
 import './globals.css';
 
 const geistSans = Geist({
@@ -18,14 +19,29 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#fcfaf4' },
+    { media: '(prefers-color-scheme: dark)', color: '#04091a' },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
-      <body className="min-h-full">{children}</body>
+    <html
+      lang="en"
+      className={`${geistSans.variable} h-full antialiased`}
+      data-theme="dark"
+      suppressHydrationWarning
+    >
+      <body className="min-h-full">
+        <script dangerouslySetInnerHTML={{ __html: buildThemeScript() }} />
+        {children}
+      </body>
     </html>
   );
 }

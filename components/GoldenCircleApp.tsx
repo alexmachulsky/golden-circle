@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import InputForm from '@/components/InputForm';
 import LoadingState from '@/components/LoadingState';
 import ResultSection from '@/components/ResultSection';
+import ThemeToggle from '@/components/ThemeToggle';
 import type { AnalysisResult } from '@/types';
 
 type AppState = 'input' | 'loading' | 'result';
@@ -91,14 +92,17 @@ export default function GoldenCircleApp() {
   }, []);
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="relative min-h-screen flex flex-col">
+      <div className="relative z-20 w-full px-4 pt-4 no-print">
+        <div className="mx-auto flex max-w-6xl justify-end">
+          <ThemeToggle />
+        </div>
+      </div>
+
       {/* Subtle radial glow background */}
       <div
         className="fixed inset-0 pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(245,158,11,0.05) 0%, transparent 70%)',
-        }}
+        style={{ background: 'var(--app-overlay-glow)' }}
       />
 
       <div className="relative z-10 flex-1 flex flex-col items-center justify-start">

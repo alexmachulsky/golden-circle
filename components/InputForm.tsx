@@ -27,7 +27,10 @@ export default function InputForm({ onSubmit, loading, error }: InputFormProps) 
           </span>
           <span className="h-px w-10 bg-gold-500/40" />
         </div>
-        <h1 className="text-4xl md:text-5xl font-bold text-white mb-5 tracking-tight leading-tight">
+        <h1
+          className="text-4xl md:text-5xl font-bold mb-5 tracking-tight leading-tight"
+          style={{ color: 'var(--app-heading)' }}
+        >
           Discover Your{' '}
           <span
             className="text-gold-400"
