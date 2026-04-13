@@ -6,6 +6,7 @@ import LoadingState from '@/components/LoadingState';
 import ResultSection from '@/components/ResultSection';
 import ThemeToggle from '@/components/ThemeToggle';
 import type { AnalysisResult } from '@/types';
+import { parseAnalysis } from '@/lib/validate-analysis';
 
 type AppState = 'input' | 'loading' | 'result';
 
@@ -47,33 +48,11 @@ export default function GoldenCircleApp() {
         throw new Error(fullText.slice(9));
       }
 
-      // Strip markdown code fences if the model wrapped the JSON
-      let cleaned = fullText
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```\s*$/, '')
-        .trim();
-
-      // Extract just the outermost JSON object
-      const start = cleaned.indexOf('{');
-      const end = cleaned.lastIndexOf('}');
-      if (start === -1 || end === -1) {
-        throw new Error('Invalid response format. Please try again.');
-      }
-      cleaned = cleaned.slice(start, end + 1);
-
-      // Fix trailing commas before ] or } (common LLM mistake)
-      cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
-
-      let parsed: AnalysisResult;
+      let parsed;
       try {
-        parsed = JSON.parse(cleaned);
+        parsed = parseAnalysis(fullText);
       } catch {
         throw new Error('Could not parse the AI response. Please try again.');
-      }
-
-      // Basic validation
-      if (!parsed.why?.statement || !Array.isArray(parsed.how) || !Array.isArray(parsed.what)) {
-        throw new Error('Incomplete response received. Please try again.');
       }
 
       setResult(parsed);

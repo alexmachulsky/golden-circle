@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Geist } from 'next/font/google';
+import { headers } from 'next/headers';
 import { buildThemeScript } from '@/lib/theme';
 import './globals.css';
 
@@ -26,11 +27,15 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Read the nonce injected by middleware.ts so the inline theme bootstrap
+  // script is allowed under the Content-Security-Policy.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
+
   return (
     <html
       lang="en"
@@ -39,7 +44,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full">
-        <script dangerouslySetInnerHTML={{ __html: buildThemeScript() }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: buildThemeScript() }} />
         {children}
       </body>
     </html>

@@ -15,6 +15,8 @@ services:
       # Runtime secrets come from the host .env.local file.
       # Do not mirror them through ${...} here: compose interpolation happens
       # before env_file is loaded and can override the real value with empty text.
+      # Public production deployments should run behind a trusted reverse proxy
+      # and include UPSTASH_REDIS_REST_* plus TRUSTED_IP_HEADER in .env.local.
       - .env.local
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:7001/"]

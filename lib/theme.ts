@@ -21,7 +21,8 @@ export function applyThemeToDocument(theme: Theme) {
 
   root.dataset.theme = theme;
   root.style.colorScheme = theme;
-  document.cookie = `${THEME_COOKIE_NAME}=${theme}; path=/; max-age=31536000; SameSite=Lax`;
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${THEME_COOKIE_NAME}=${theme}; path=/; max-age=31536000; SameSite=Lax${secure}`;
   window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
 }
 

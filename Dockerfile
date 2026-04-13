@@ -3,7 +3,10 @@
 #   Install all deps and compile the Next.js app in standalone mode.
 #   The installer and all source files never reach the final image.
 # ────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS build
+# node:20-alpine — pinned to a specific digest for supply-chain integrity.
+# To update: run `docker pull node:20-alpine` and replace the digest below,
+# or let Dependabot/Renovate open a PR when a new digest is published.
+FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS build
 
 # Required for Next.js SWC binaries on Alpine (glibc compat shim)
 RUN apk add --no-cache libc6-compat
@@ -29,7 +32,7 @@ RUN npm run build
 #   Uses only the standalone bundle — no source, no dev deps.
 #   Runs as a non-root user to follow least-privilege principle.
 # ────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS runner
 
 WORKDIR /app
 
