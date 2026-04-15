@@ -80,12 +80,11 @@ describe('checkRateLimit', () => {
     await expect(checkRateLimit(keyB, { limit: 1, windowMs: 60_000 })).resolves.toBe(true);
   });
 
-  it("requires a shared rate-limit backend in production", async () => {
+  it("falls back to in-memory rate limiting in production when Redis is not configured", async () => {
     setNodeEnv("production");
 
-    await expect(checkRateLimit("test-production", { limit: 1, windowMs: 60_000 })).rejects.toThrow(
-      RateLimitError,
-    );
+    // Should resolve (not throw) and allow the first request through
+    await expect(checkRateLimit("test-production", { limit: 1, windowMs: 60_000 })).resolves.toBe(true);
   });
 
   it("uses the Upstash transaction API when production Redis credentials are configured", async () => {

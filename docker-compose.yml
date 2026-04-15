@@ -47,6 +47,10 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN        # nginx startup needs chown to set up temp dirs
+      - SETUID
+      - SETGID
     security_opt:
       - no-new-privileges:true
     depends_on:

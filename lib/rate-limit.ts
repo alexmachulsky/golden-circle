@@ -207,9 +207,11 @@ export async function checkRateLimit(
   }
 
   if (isProduction()) {
-    throw new RateLimitError(
-      "Distributed rate limiting is required in production. Configure Upstash Redis.",
-    );
+    // Redis not configured — fall back to in-memory rate limiting with a
+    // warning. This is less strict than distributed limiting (counters are
+    // per-process and reset on restart) but keeps the app functional when
+    // Upstash is not yet provisioned.
+    console.warn("[rate-limit] Upstash Redis not configured; falling back to in-memory limiting.");
   }
 
   return checkRateLimitInMemory(key, { limit, windowMs });
