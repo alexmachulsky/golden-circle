@@ -237,7 +237,11 @@ export function getClientKey(req: Request, trustedIpHeader: string | null = null
 
   if (isProduction()) {
     if (!trustedIpHeader) {
-      throw new RateLimitError("TRUSTED_IP_HEADER must be configured in production.");
+      // No reverse proxy configured — fall back to a shared in-process bucket.
+      // All requests share one counter; it resets on restart. Acceptable for
+      // single-container deployments where IP spoofing isn't a concern.
+      console.warn("[rate-limit] TRUSTED_IP_HEADER not set; using shared in-memory bucket for all clients.");
+      return LOCAL_KEY;
     }
 
     throw new RateLimitError(

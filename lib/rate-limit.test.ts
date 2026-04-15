@@ -192,10 +192,10 @@ describe("getClientKey", () => {
     expect(getClientKey(req, null)).toBe("__local__");
   });
 
-  it("fails closed in production when TRUSTED_IP_HEADER is missing", () => {
+  it("falls back to __local__ in production when TRUSTED_IP_HEADER is not configured", () => {
     setNodeEnv("production");
     const req = makeReq({});
-    expect(() => getClientKey(req, null)).toThrow(RateLimitError);
+    expect(getClientKey(req, null)).toBe("__local__");
   });
 
   it("fails closed in production when the trusted header is absent on the request", () => {
