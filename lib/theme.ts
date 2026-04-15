@@ -27,13 +27,18 @@ export function applyThemeToDocument(theme: Theme) {
 }
 
 export function buildThemeScript(): string {
+  // Use JSON.stringify so that if either constant is ever made configurable
+  // (e.g. read from an env var), no special characters can escape the JS string
+  // and cause XSS through the dangerouslySetInnerHTML inline <script>.
+  const cookieNameJs = JSON.stringify(THEME_COOKIE_NAME + '=');
+  const defaultThemeJs = JSON.stringify(DEFAULT_THEME as string);
   return `(() => {
-    const cookieName = '${THEME_COOKIE_NAME}=';
+    const cookieName = ${cookieNameJs};
     const storedTheme = document.cookie
       .split('; ')
       .find((cookie) => cookie.startsWith(cookieName))
       ?.slice(cookieName.length);
-    const theme = storedTheme === 'light' ? 'light' : '${DEFAULT_THEME}';
+    const theme = storedTheme === 'light' ? 'light' : ${defaultThemeJs};
     const root = document.documentElement;
     root.dataset.theme = theme;
     root.style.colorScheme = theme;

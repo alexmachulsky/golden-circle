@@ -50,9 +50,11 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
         }
       }
 
-      // Check for server-side error signal
+      // Check for server-side error signal. Cap and strip the suffix so a
+      // prompt-injected response can never surface arbitrary text as a UI error.
       if (fullText.startsWith('__ERROR__')) {
-        throw new Error(fullText.slice(9));
+        const raw = fullText.slice(9, 300).replace(/[^\x20-\x7E\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF]/g, '');
+        throw new Error(raw || 'Analysis failed. Please try again.');
       }
 
       let parsed;

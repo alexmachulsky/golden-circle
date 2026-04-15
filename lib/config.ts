@@ -11,7 +11,10 @@ export const ALLOWED_ORIGINS: string[] = raw
   .filter(Boolean);
 
 const rawLimit = process.env.RATE_LIMIT_PER_MIN;
-export const RATE_LIMIT_PER_MIN: number = rawLimit ? parseInt(rawLimit, 10) : 20;
+const parsedLimit = rawLimit ? parseInt(rawLimit, 10) : NaN;
+export const RATE_LIMIT_PER_MIN: number = (!isNaN(parsedLimit) && parsedLimit > 0)
+  ? parsedLimit
+  : 20;
 
 /**
  * The name of the request header that carries the authoritative client IP,

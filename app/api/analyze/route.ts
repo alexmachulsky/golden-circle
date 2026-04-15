@@ -11,15 +11,17 @@ import { RateLimitError, checkRateLimit, getClientKey } from "@/lib/rate-limit";
 import { readRuntimeValue } from "@/lib/runtime-env";
 import { TurnstileError, verifyTurnstileToken } from "@/lib/turnstile";
 
+import { MIN_INPUT_LENGTH, MAX_INPUT_LENGTH } from "@/lib/constants";
+
 const MODEL = "llama-3.3-70b-versatile";
-const BODY_LIMIT_BYTES = 8 * 1024; // 8 KB - well above the 2000-char input maximum
+const BODY_LIMIT_BYTES = 8 * 1024; // 8 KB - well above the MAX_INPUT_LENGTH-char input maximum
 const UPSTREAM_TIMEOUT_MS = 30_000;
 
 function sanitizeInput(input: string): string {
   return input
     .replace(/<[^>]*>/g, "") // strip HTML/XML tags
     .trim()
-    .slice(0, 2000);
+    .slice(0, MAX_INPUT_LENGTH);
 }
 
 const ERROR_HEADERS = {
@@ -112,9 +114,9 @@ export async function POST(req: Request) {
   }
 
   const sanitized = sanitizeInput(rawBody.businessIdea);
-  if (sanitized.length < 50) {
+  if (sanitized.length < MIN_INPUT_LENGTH) {
     return Response.json(
-      { error: "Please provide at least 50 characters describing your business idea." },
+      { error: `Please provide at least ${MIN_INPUT_LENGTH} characters describing your business idea.` },
       { status: 400, headers: ERROR_HEADERS },
     );
   }
@@ -158,10 +160,38 @@ export async function POST(req: Request) {
           { signal: ac.signal },
         );
 
+        let accumulated = "";
+        let checkedPrefix = false;
+
         for await (const chunk of stream) {
           const text = chunk.choices[0]?.delta?.content;
           if (text) {
-            controller.enqueue(encoder.encode(text));
+            // Guard against a prompt-injected LLM response that starts with
+            // the error sentinel: accumulate the first 20 chars before streaming.
+            if (!checkedPrefix) {
+              accumulated += text;
+              if (accumulated.length >= 20 || text.includes("{")) {
+                checkedPrefix = true;
+                if (accumulated.startsWith("__ERROR__")) {
+                  // LLM was injected into emitting the error prefix — reject it.
+                  controller.enqueue(encoder.encode("__ERROR__Analysis failed. Please try again."));
+                  controller.close();
+                  return;
+                }
+                controller.enqueue(encoder.encode(accumulated));
+                accumulated = "";
+              }
+            } else {
+              controller.enqueue(encoder.encode(text));
+            }
+          }
+        }
+        // Flush any buffered prefix bytes for very short responses
+        if (accumulated) {
+          if (accumulated.startsWith("__ERROR__")) {
+            controller.enqueue(encoder.encode("__ERROR__Analysis failed. Please try again."));
+          } else {
+            controller.enqueue(encoder.encode(accumulated));
           }
         }
 

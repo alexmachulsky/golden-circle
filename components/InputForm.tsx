@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { EXAMPLES } from '@/lib/prompt';
+import { MIN_INPUT_LENGTH, MAX_INPUT_LENGTH } from "@/lib/constants";
 import TurnstileWidget from '@/components/TurnstileWidget';
 
 interface InputFormProps {
@@ -14,14 +15,12 @@ interface InputFormProps {
 export default function InputForm({ onSubmit, loading, error, turnstileSiteKey = null }: InputFormProps) {
   const [input, setInput] = useState('');
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const MIN_CHARS = 50;
-  const MAX_CHARS = 2000;
-  const remaining = MIN_CHARS - input.trim().length;
+  const remaining = MIN_INPUT_LENGTH - input.trim().length;
   const verificationSiteKey = turnstileSiteKey?.trim() ? turnstileSiteKey : null;
   const requiresVerification = Boolean(verificationSiteKey);
   const verificationUnavailable = process.env.NODE_ENV === 'production' && !verificationSiteKey;
   const canSubmit =
-    input.trim().length >= MIN_CHARS &&
+    input.trim().length >= MIN_INPUT_LENGTH &&
     !loading &&
     !verificationUnavailable &&
     (!requiresVerification || Boolean(turnstileToken));
@@ -79,7 +78,7 @@ export default function InputForm({ onSubmit, loading, error, turnstileSiteKey =
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            maxLength={MAX_CHARS}
+            maxLength={MAX_INPUT_LENGTH}
             disabled={loading}
             placeholder="Describe your business idea: what problem do you solve, who are your customers, and what makes your approach different? (1–3 paragraphs works best)"
             className="w-full h-44 bg-transparent text-slate-200 placeholder-slate-600 resize-none outline-none text-base leading-relaxed disabled:opacity-50"
@@ -102,7 +101,7 @@ export default function InputForm({ onSubmit, loading, error, turnstileSiteKey =
             {remaining > 0 ? (
               <>{remaining} more character{remaining !== 1 ? 's' : ''} to unlock</>
             ) : (
-              <>{input.trim().length}/{MAX_CHARS}</>
+              <>{input.trim().length}/{MAX_INPUT_LENGTH}</>
             )}
           </span>
 

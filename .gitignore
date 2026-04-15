@@ -50,3 +50,5 @@ next-env.d.ts
 CLAUDE.md
 AGENTS.md
 .github/copilot-instructions.md
+.codex
+.playwright-mcp/

@@ -96,8 +96,34 @@ function getUpstashConfig(
     );
   }
 
+  // Enforce HTTPS — prevents the bearer token from being transmitted in plaintext
+  // and blocks SSRF to a http:// endpoint controlled by an attacker.
+  if (!url.startsWith("https://")) {
+    throw new RateLimitError("UPSTASH_REDIS_REST_URL must use HTTPS.");
+  }
+
+  // Block private/internal IP ranges to prevent SSRF via a misconfigured URL.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new RateLimitError("UPSTASH_REDIS_REST_URL is not a valid URL.");
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.startsWith("169.254.") ||
+    hostname.startsWith("10.") ||
+    hostname.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+  ) {
+    throw new RateLimitError("UPSTASH_REDIS_REST_URL must not point to a private network address.");
+  }
+
   return {
-    url: url.replace(/\/+$/, ""),
+    url: parsed.origin,
     token,
   };
 }

@@ -57,18 +57,29 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
   }, []);
 
   const handleCopy = useCallback(async () => {
+    // Strip control characters (including CR/LF) from each LLM-sourced field
+    // before writing to clipboard — prevents "paste-jacking" where a crafted
+    // value containing '\n' followed by a shell command executes on paste into
+    // a terminal. The join('\n') below is the only intentional line separator.
+    const safe = (s: string) =>
+      s.replace(/[\x00-\x1F\x7F]/g, ' ').trim();
+
     const text = [
-      `WHY — ${result.why.statement}`,
+      `WHY — ${safe(result.why.statement)}`,
       '',
       'HOW',
-      ...result.how.map((h, i) => `${i + 1}. ${h.title}: ${h.description}`),
+      ...result.how.map((h, i) => `${i + 1}. ${safe(h.title)}: ${safe(h.description)}`),
       '',
       'WHAT',
-      ...result.what.map((w, i) => `${i + 1}. ${w.title}: ${w.description}`),
+      ...result.what.map((w, i) => `${i + 1}. ${safe(w.title)}: ${safe(w.description)}`),
       '',
-      `Strategic advantage: ${result.positioning_note}`,
+      `Strategic advantage: ${safe(result.positioning_note)}`,
     ].join('\n');
-    await navigator.clipboard.writeText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard API unavailable (non-HTTPS context or permission denied)
+    }
   }, [result]);
 
   const handlePrint = useCallback(() => {

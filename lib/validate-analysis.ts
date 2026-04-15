@@ -40,8 +40,12 @@ export function parseAnalysis(text: string): AnalysisResult {
   return validateShape(parsed);
 }
 
-function isNonEmptyString(v: unknown): v is string {
-  return typeof v === 'string' && v.trim().length > 0;
+function isNonEmptyString(v: unknown, maxLen?: number): v is string {
+  return (
+    typeof v === 'string' &&
+    v.trim().length > 0 &&
+    (maxLen === undefined || v.length <= maxLen)
+  );
 }
 
 function validateHowItem(item: unknown, index: number): HowItem {
@@ -50,9 +54,9 @@ function validateHowItem(item: unknown, index: number): HowItem {
   }
   const obj = item as Record<string, unknown>;
   if (
-    !isNonEmptyString(obj.title) ||
-    !isNonEmptyString(obj.description) ||
-    !isNonEmptyString(obj.uniqueness)
+    !isNonEmptyString(obj.title, 120) ||
+    !isNonEmptyString(obj.description, 500) ||
+    !isNonEmptyString(obj.uniqueness, 400)
   ) {
     throw new Error(`Invalid analysis response: how[${index}] missing fields`);
   }
@@ -65,9 +69,9 @@ function validateWhatItem(item: unknown, index: number): WhatItem {
   }
   const obj = item as Record<string, unknown>;
   if (
-    !isNonEmptyString(obj.title) ||
-    !isNonEmptyString(obj.description) ||
-    !isNonEmptyString(obj.why_connection)
+    !isNonEmptyString(obj.title, 120) ||
+    !isNonEmptyString(obj.description, 500) ||
+    !isNonEmptyString(obj.why_connection, 400)
   ) {
     throw new Error(`Invalid analysis response: what[${index}] missing fields`);
   }
@@ -85,7 +89,7 @@ function validateShape(data: unknown): AnalysisResult {
     throw new Error('Invalid analysis response');
   }
   const why = obj.why as Record<string, unknown>;
-  if (!isNonEmptyString(why.statement) || !isNonEmptyString(why.depth_note)) {
+  if (!isNonEmptyString(why.statement, 600) || !isNonEmptyString(why.depth_note, 400)) {
     throw new Error('Invalid analysis response');
   }
 
@@ -102,7 +106,7 @@ function validateShape(data: unknown): AnalysisResult {
   const what: WhatItem[] = obj.what.map((item, i) => validateWhatItem(item, i));
 
   // Validate positioning_note
-  if (!isNonEmptyString(obj.positioning_note)) {
+  if (!isNonEmptyString(obj.positioning_note, 500)) {
     throw new Error('Invalid analysis response');
   }
 
