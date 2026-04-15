@@ -41,6 +41,9 @@ export default function GoldenCircleApp() {
         const { done, value } = await reader.read();
         if (done) break;
         fullText += decoder.decode(value, { stream: true });
+        if (fullText.length > 64_000) {
+          throw new Error("Response too large. Please try again.");
+        }
       }
 
       // Check for server-side error signal

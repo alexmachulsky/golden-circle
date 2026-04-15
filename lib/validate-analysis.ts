@@ -106,6 +106,13 @@ function validateShape(data: unknown): AnalysisResult {
     throw new Error('Invalid analysis response');
   }
 
+  const allowed = new Set(["why", "how", "what", "positioning_note"]);
+  for (const key of Object.keys(obj)) {
+    if (!allowed.has(key)) {
+      throw new Error("Invalid analysis response");
+    }
+  }
+
   return {
     why: { statement: why.statement, depth_note: why.depth_note },
     how,

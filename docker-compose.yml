@@ -19,7 +19,7 @@ services:
       # and include UPSTASH_REDIS_REST_* plus TRUSTED_IP_HEADER in .env.local.
       - .env.local
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:7001/"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:7001/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

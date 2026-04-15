@@ -17,6 +17,8 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           // Disable browser features not used by the app
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          // HSTS — instruct browsers to always use HTTPS for this domain
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
           // CSP is set per-request in middleware.ts (requires a nonce)
         ],
       },

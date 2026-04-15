@@ -15,7 +15,7 @@ const UPSTREAM_TIMEOUT_MS = 30_000;
 
 function sanitizeInput(input: string): string {
   return input
-    .replace(/<\/?[a-z][^>]*>/gi, "") // strip HTML/XML tags
+    .replace(/<[^>]*>/g, "") // strip HTML/XML tags
     .trim()
     .slice(0, 2000);
 }
@@ -124,7 +124,7 @@ export async function POST(req: Request) {
         const stream = await groq.chat.completions.create(
           {
             model: MODEL,
-            max_tokens: 2048,
+            max_tokens: 1024,
             stream: true,
             messages: [
               { role: "system", content: SYSTEM_PROMPT },
@@ -143,7 +143,7 @@ export async function POST(req: Request) {
 
         controller.close();
       } catch (err: unknown) {
-        console.error("[analyze] upstream error:", err);
+        console.error("[analyze] upstream error:", err instanceof Error ? err.message : String(err));
         const isTimeout =
           err instanceof Error &&
           (err.name === "AbortError" || err.message.toLowerCase().includes("abort"));
