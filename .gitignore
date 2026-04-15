@@ -41,6 +41,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# git worktrees
+.worktrees/
+
 # AI coding-assistant config — local dev only, not for source control
 CLAUDE.md
 AGENTS.md
