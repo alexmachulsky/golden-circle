@@ -121,31 +121,36 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan image for vulnerabilities (Trivy)
-        id: trivy
+      - name: Scan image for vulnerabilities (Trivy SARIF)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # v0.35.0
-        continue-on-error: true        # let the upload step always run
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           format: sarif
           output: trivy-results.sarif
+          # SARIF output includes all severities by default, so keep report
+          # generation separate from the CRITICAL/HIGH enforcement gate below.
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: os,library
+          trivyignores: .trivyignore
+
+      - name: Upload Trivy results to GitHub Security tab
+        if: hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225  # v4
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Enforce Trivy gate (CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # v0.35.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: table
           exit-code: "1"
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
           trivyignores: .trivyignore
-
-      - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225  # v4
-        if: always() && hashFiles('trivy-results.sarif') != ''
-        with:
-          sarif_file: trivy-results.sarif
-
-      - name: Block pipeline on findings
-        if: steps.trivy.outcome == 'failure'
-        run: |
-          echo "::error::Trivy found fixable CRITICAL/HIGH vulnerabilities. Review the Security tab for details."
-          exit 1
+          skip-setup-trivy: true
 
   # ── 4. PUBLISH ────────────────────────────────────────────────────────────
   publish:
