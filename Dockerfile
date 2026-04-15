@@ -41,6 +41,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=7001
 ENV HOSTNAME=0.0.0.0
 
+# Patch all OS packages before anything else — fixes libcrypto3/libssl3,
+# musl, and zlib CVEs that are present in the pinned base image digest.
+RUN apk upgrade --no-cache
+
 # Create a non-root user/group
 RUN addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 nextjs

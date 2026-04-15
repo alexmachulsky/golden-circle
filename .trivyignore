@@ -1,0 +1,23 @@
+# Packages vendored inside next/dist/compiled/ — these are compiled into
+# Next.js's distribution bundle and cannot be independently upgraded via npm.
+# They are only used internally by the Next.js server runtime and are not
+# directly reachable via user input. Fixes require an upstream Next.js release.
+
+# cross-spawn (next/dist/compiled/cross-spawn)
+CVE-2024-21538
+
+# glob (next/dist/compiled/)
+CVE-2025-64756
+
+# minimatch (next/dist/compiled/)
+CVE-2026-26996
+CVE-2026-27903
+CVE-2026-27904
+
+# tar (next/dist/compiled/tar)
+CVE-2026-23745
+CVE-2026-23950
+CVE-2026-24842
+CVE-2026-26960
+CVE-2026-29786
+CVE-2026-31802
