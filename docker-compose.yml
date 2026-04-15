@@ -8,9 +8,10 @@ services:
     container_name: golden-circle
     restart: unless-stopped
     ports:
-      - "127.0.0.1:7001:7001"
+      - "0.0.0.0:7001:7001"
     environment:
       NODE_ENV: production
+      ALLOWED_ORIGINS: "http://localhost:7001,http://192.168.18.241:7001"
       # Secrets are injected via Docker secrets (_FILE vars below).
       # Do NOT set GROQ_API_KEY, UPSTASH_REDIS_REST_TOKEN, or TURNSTILE_SECRET_KEY
       # here because explicit "environment" entries override env_file values,
