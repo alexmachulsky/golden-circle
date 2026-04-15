@@ -2,19 +2,29 @@
 
 import { useState } from 'react';
 import { EXAMPLES } from '@/lib/prompt';
+import TurnstileWidget from '@/components/TurnstileWidget';
 
 interface InputFormProps {
-  onSubmit: (input: string) => void;
+  onSubmit: (input: string, turnstileToken?: string | null) => void;
   loading: boolean;
   error: string | null;
+  turnstileSiteKey?: string | null;
 }
 
-export default function InputForm({ onSubmit, loading, error }: InputFormProps) {
+export default function InputForm({ onSubmit, loading, error, turnstileSiteKey = null }: InputFormProps) {
   const [input, setInput] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const MIN_CHARS = 50;
   const MAX_CHARS = 2000;
   const remaining = MIN_CHARS - input.trim().length;
-  const canSubmit = input.trim().length >= MIN_CHARS && !loading;
+  const verificationSiteKey = turnstileSiteKey?.trim() ? turnstileSiteKey : null;
+  const requiresVerification = Boolean(verificationSiteKey);
+  const verificationUnavailable = process.env.NODE_ENV === 'production' && !verificationSiteKey;
+  const canSubmit =
+    input.trim().length >= MIN_CHARS &&
+    !loading &&
+    !verificationUnavailable &&
+    (!requiresVerification || Boolean(turnstileToken));
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-12 md:py-20">
@@ -76,6 +86,12 @@ export default function InputForm({ onSubmit, loading, error }: InputFormProps) 
           />
         </div>
 
+        {verificationSiteKey && (
+          <div className="px-6 pb-5">
+            <TurnstileWidget siteKey={verificationSiteKey} onTokenChange={setTurnstileToken} />
+          </div>
+        )}
+
         {/* Footer bar */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gold-500/8 bg-navy-900/40">
           <span
@@ -91,7 +107,7 @@ export default function InputForm({ onSubmit, loading, error }: InputFormProps) 
           </span>
 
           <button
-            onClick={() => onSubmit(input)}
+            onClick={() => onSubmit(input, turnstileToken)}
             disabled={!canSubmit}
             className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gold-500 text-navy-950 text-sm font-bold hover:bg-gold-400 active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed transition-all duration-150"
           >
@@ -131,6 +147,12 @@ export default function InputForm({ onSubmit, loading, error }: InputFormProps) 
       {error && (
         <div className="mt-5 p-4 rounded-xl bg-red-500/8 border border-red-500/25 text-red-400 text-sm">
           {error}
+        </div>
+      )}
+
+      {verificationUnavailable && (
+        <div className="mt-5 p-4 rounded-xl bg-amber-500/8 border border-amber-500/25 text-amber-300 text-sm">
+          Human verification is unavailable right now. Please try again later.
         </div>
       )}
 

@@ -68,23 +68,34 @@ Open [http://localhost:7001](http://localhost:7001).
 | Name | Required | Description |
 | --- | --- | --- |
 | `GROQ_API_KEY` | Yes | API key used by `app/api/analyze/route.ts` to call Groq |
+| `TURNSTILE_SITE_KEY` | Production | Public site key used to render the verification challenge |
+| `TURNSTILE_SECRET_KEY` | Production | Secret key used server-side to verify submitted challenge tokens |
+| `UPSTASH_REDIS_REST_URL` | Production | Shared rate-limit backend URL |
+| `UPSTASH_REDIS_REST_TOKEN` | Production | Shared rate-limit backend token |
+| `TRUSTED_IP_HEADER` | Production | Trusted proxy-injected client IP header |
 
 ## Docker
 
-Run with Docker Compose (keep your Groq key in `.env.local`):
+Run with Docker Compose:
 
 ```bash
 cp .env.local.example .env.local
-# fill in GROQ_API_KEY
+# fill in only the non-secret settings in .env.local
+mkdir -p secrets
+# put the sensitive runtime values into:
+#   secrets/groq_api_key.txt
+#   secrets/upstash_redis_rest_token.txt
+#   secrets/turnstile_secret_key.txt
 docker compose up --build
 ```
 
-The compose file loads `.env.local` into the container at runtime. `.dockerignore` excludes local env files from the build context so the key is never baked into the image.
+The compose file now binds the app to `127.0.0.1:7001` and expects sensitive values to be mounted as Docker secrets under `/run/secrets/*`. `.dockerignore` still excludes local env files from the build context so secrets are never baked into the image.
 
-You can also pull the pre-built image published to GitHub Container Registry on every merge to `main`:
+You can also pull the pre-built image published to GitHub Container Registry on every merge to `main`.
+Use an immutable tag or digest for production deployments:
 
 ```bash
-docker pull ghcr.io/<owner>/golden-circle:latest
+docker pull ghcr.io/<owner>/golden-circle:<git-sha>
 ```
 
 ## CI/CD
@@ -92,7 +103,7 @@ docker pull ghcr.io/<owner>/golden-circle:latest
 GitHub Actions runs on every push and pull request to `main`:
 
 1. **Lint, Type-check & Build** — runs `npm run lint`, `npx tsc --noEmit`, and `npm run build`.
-2. **Docker Build & Publish** — builds the Docker image (all branches) and pushes it to GHCR (merges to `main` only), tagged with both `:latest` and the commit SHA.
+2. **Docker Build & Publish** — builds the Docker image (all branches) and pushes it to GHCR (merges to `main` only), tagged with the commit SHA for immutable deployments.
 
 ## How it works
 

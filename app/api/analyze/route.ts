@@ -8,6 +8,8 @@ import {
   readJsonWithLimit,
 } from "@/lib/request-guards";
 import { RateLimitError, checkRateLimit, getClientKey } from "@/lib/rate-limit";
+import { readRuntimeValue } from "@/lib/runtime-env";
+import { TurnstileError, verifyTurnstileToken } from "@/lib/turnstile";
 
 const MODEL = "llama-3.3-70b-versatile";
 const BODY_LIMIT_BYTES = 8 * 1024; // 8 KB - well above the 2000-char input maximum
@@ -33,6 +35,8 @@ const STREAM_HEADERS = {
 };
 
 export async function POST(req: Request) {
+  let clientKey = "__local__";
+
   // ── Guard 1: Content-Type ───────────────────────────────────────────────
   try {
     assertJsonContentType(req);
@@ -55,7 +59,7 @@ export async function POST(req: Request) {
 
   // ── Guard 3: Rate limit ─────────────────────────────────────────────────
   try {
-    const clientKey = getClientKey(req, TRUSTED_IP_HEADER);
+    clientKey = getClientKey(req, TRUSTED_IP_HEADER);
     const allowed = await checkRateLimit(clientKey, {
       limit: RATE_LIMIT_PER_MIN,
       windowMs: 60_000,
@@ -88,7 +92,14 @@ export async function POST(req: Request) {
   }
 
   // ── Guard 5: API key ────────────────────────────────────────────────────
-  const apiKey = process.env.GROQ_API_KEY;
+  let apiKey: string | null;
+  try {
+    apiKey = readRuntimeValue("GROQ_API_KEY");
+  } catch (err) {
+    console.error("[analyze] failed to read GROQ_API_KEY:", err instanceof Error ? err.message : String(err));
+    return Response.json({ error: "Service unavailable." }, { status: 500, headers: ERROR_HEADERS });
+  }
+
   if (!apiKey) {
     console.error("[analyze] GROQ_API_KEY is not set");
     return Response.json({ error: "Service unavailable." }, { status: 500, headers: ERROR_HEADERS });
@@ -106,6 +117,19 @@ export async function POST(req: Request) {
       { error: "Please provide at least 50 characters describing your business idea." },
       { status: 400, headers: ERROR_HEADERS },
     );
+  }
+
+  // ── Guard 6: Human verification ────────────────────────────────────────
+  try {
+    await verifyTurnstileToken({
+      token: rawBody.turnstileToken,
+      remoteIp: clientKey === "__local__" ? null : clientKey,
+    });
+  } catch (err) {
+    if (err instanceof TurnstileError) {
+      return Response.json({ error: err.clientMessage }, { status: err.status, headers: ERROR_HEADERS });
+    }
+    throw err;
   }
 
   // ── Stream Groq response ────────────────────────────────────────────────

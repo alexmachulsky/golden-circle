@@ -10,12 +10,16 @@ import { parseAnalysis } from '@/lib/validate-analysis';
 
 type AppState = 'input' | 'loading' | 'result';
 
-export default function GoldenCircleApp() {
+interface GoldenCircleAppProps {
+  turnstileSiteKey: string | null;
+}
+
+export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppProps) {
   const [appState, setAppState] = useState<AppState>('input');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = useCallback(async (input: string) => {
+  const handleSubmit = useCallback(async (input: string, turnstileToken: string | null = null) => {
     setError(null);
     setAppState('loading');
 
@@ -23,7 +27,7 @@ export default function GoldenCircleApp() {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessIdea: input.trim() }),
+        body: JSON.stringify({ businessIdea: input.trim(), turnstileToken }),
       });
 
       if (!response.ok) {
@@ -89,7 +93,12 @@ export default function GoldenCircleApp() {
 
       <div className="relative z-10 flex-1 flex flex-col items-center justify-start">
         {appState === 'input' && (
-          <InputForm onSubmit={handleSubmit} loading={false} error={error} />
+          <InputForm
+            onSubmit={handleSubmit}
+            loading={false}
+            error={error}
+            turnstileSiteKey={turnstileSiteKey}
+          />
         )}
         {appState === 'loading' && <LoadingState />}
         {appState === 'result' && result && (

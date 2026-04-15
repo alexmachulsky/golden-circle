@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetStoreForTesting, checkRateLimit, getClientKey, RateLimitError } from "./rate-limit";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // Reset the internal store between tests by re-importing after vi.resetModules
 // or by using separate keys per test to avoid cross-test bleed.
@@ -8,23 +11,36 @@ function setNodeEnv(value: string): void {
   (process.env as Record<string, string | undefined>)["NODE_ENV"] = value;
 }
 
+function createSecretFile(name: string, value: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "golden-circle-rate-limit-"));
+  writeFileSync(join(dir, name), value, "utf8");
+  return dir;
+}
+
 describe('checkRateLimit', () => {
   // Use unique keys per test to avoid cross-contamination
   let testId: number;
+  let tempDir: string | null;
   beforeEach(() => {
     setNodeEnv("test");
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
     _resetStoreForTesting();
     testId = Math.random();
+    tempDir = null;
   });
 
   afterEach(() => {
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
     setNodeEnv("test");
     global.fetch = originalFetch;
     _resetStoreForTesting();
+    if (tempDir) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   const originalFetch = global.fetch;
@@ -94,6 +110,33 @@ describe('checkRateLimit', () => {
         headers: expect.objectContaining({
           Authorization: "Bearer secret-token",
           "Content-Type": "application/json",
+        }),
+      }),
+    );
+  });
+
+  it("reads the Upstash token from UPSTASH_REDIS_REST_TOKEN_FILE", async () => {
+    setNodeEnv("production");
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    tempDir = createSecretFile("upstash-token.txt", "file-secret-token");
+    process.env.UPSTASH_REDIS_REST_TOKEN_FILE = join(tempDir, "upstash-token.txt");
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([{ result: "OK" }, { result: 1 }, { result: 60_000 }]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    global.fetch = fetchMock as typeof fetch;
+
+    await expect(checkRateLimit("203.0.113.11", { limit: 2, windowMs: 60_000 })).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://redis.example/multi-exec",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer file-secret-token",
         }),
       }),
     );

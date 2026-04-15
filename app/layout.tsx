@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import { Geist } from 'next/font/google';
 import { headers } from 'next/headers';
+import Script from 'next/script';
 import { buildThemeScript } from '@/lib/theme';
+import { getTurnstileSiteKey } from '@/lib/turnstile';
 import './globals.css';
 
 const geistSans = Geist({
@@ -35,6 +37,7 @@ export default async function RootLayout({
   // Read the nonce injected by middleware.ts so the inline theme bootstrap
   // script is allowed under the Content-Security-Policy.
   const nonce = (await headers()).get('x-nonce') ?? undefined;
+  const turnstileSiteKey = getTurnstileSiteKey();
 
   return (
     <html
@@ -45,6 +48,13 @@ export default async function RootLayout({
     >
       <body className="min-h-full">
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: buildThemeScript() }} />
+        {turnstileSiteKey && (
+          <Script
+            src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+            strategy="afterInteractive"
+            nonce={nonce}
+          />
+        )}
         {children}
       </body>
     </html>
