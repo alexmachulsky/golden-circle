@@ -12,6 +12,8 @@ import { NextRequest, NextResponse } from "next/server";
  *  - style-src keeps 'unsafe-inline' because Framer Motion and Tailwind emit
  *    inline styles at runtime — this does not weaken script-src.
  *  - frame-ancestors 'none' supplements X-Frame-Options: DENY (belt + braces).
+ *  - report-to sends CSP violation reports to /api/csp-report so active
+ *    XSS attempts and policy violations are visible in server logs.
  */
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64");
@@ -27,6 +29,7 @@ export function proxy(request: NextRequest) {
     "base-uri 'self'",
     "form-action 'self'",
     "object-src 'none'",
+    "report-to csp-violations",
   ].join("; ");
 
   // Forward the nonce to the server component tree via a request header
@@ -38,6 +41,11 @@ export function proxy(request: NextRequest) {
   });
 
   response.headers.set("Content-Security-Policy", csp);
+  // Declare the reporting endpoint that CSP report-to references above.
+  response.headers.set(
+    "Reporting-Endpoints",
+    'csp-violations="/api/csp-report"',
+  );
 
   return response;
 }

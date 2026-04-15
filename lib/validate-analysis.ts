@@ -40,8 +40,25 @@ export function parseAnalysis(text: string): AnalysisResult {
   return validateShape(parsed);
 }
 
-function isNonEmptyString(v: unknown): v is string {
-  return typeof v === 'string' && v.trim().length > 0;
+// Maximum character lengths for LLM output fields. These match the schema
+// intent described in the system prompt and prevent runaway responses from
+// a compromised or adversarial model from exhausting client memory.
+const MAX_FIELD_LENGTHS = {
+  whyStatement: 600,
+  whyDepthNote: 300,
+  howTitle: 80,
+  howDescription: 400,
+  howUniqueness: 300,
+  whatTitle: 100,
+  whatDescription: 400,
+  whatWhyConnection: 300,
+  positioningNote: 400,
+} as const;
+
+function isNonEmptyString(v: unknown, maxLen?: number): v is string {
+  if (typeof v !== 'string' || v.trim().length === 0) return false;
+  if (maxLen !== undefined && v.length > maxLen) return false;
+  return true;
 }
 
 function validateHowItem(item: unknown, index: number): HowItem {
@@ -50,11 +67,11 @@ function validateHowItem(item: unknown, index: number): HowItem {
   }
   const obj = item as Record<string, unknown>;
   if (
-    !isNonEmptyString(obj.title) ||
-    !isNonEmptyString(obj.description) ||
-    !isNonEmptyString(obj.uniqueness)
+    !isNonEmptyString(obj.title, MAX_FIELD_LENGTHS.howTitle) ||
+    !isNonEmptyString(obj.description, MAX_FIELD_LENGTHS.howDescription) ||
+    !isNonEmptyString(obj.uniqueness, MAX_FIELD_LENGTHS.howUniqueness)
   ) {
-    throw new Error(`Invalid analysis response: how[${index}] missing fields`);
+    throw new Error(`Invalid analysis response: how[${index}] missing or oversized fields`);
   }
   return { title: obj.title, description: obj.description, uniqueness: obj.uniqueness };
 }
@@ -65,11 +82,11 @@ function validateWhatItem(item: unknown, index: number): WhatItem {
   }
   const obj = item as Record<string, unknown>;
   if (
-    !isNonEmptyString(obj.title) ||
-    !isNonEmptyString(obj.description) ||
-    !isNonEmptyString(obj.why_connection)
+    !isNonEmptyString(obj.title, MAX_FIELD_LENGTHS.whatTitle) ||
+    !isNonEmptyString(obj.description, MAX_FIELD_LENGTHS.whatDescription) ||
+    !isNonEmptyString(obj.why_connection, MAX_FIELD_LENGTHS.whatWhyConnection)
   ) {
-    throw new Error(`Invalid analysis response: what[${index}] missing fields`);
+    throw new Error(`Invalid analysis response: what[${index}] missing or oversized fields`);
   }
   return { title: obj.title, description: obj.description, why_connection: obj.why_connection };
 }
@@ -85,7 +102,10 @@ function validateShape(data: unknown): AnalysisResult {
     throw new Error('Invalid analysis response');
   }
   const why = obj.why as Record<string, unknown>;
-  if (!isNonEmptyString(why.statement) || !isNonEmptyString(why.depth_note)) {
+  if (
+    !isNonEmptyString(why.statement, MAX_FIELD_LENGTHS.whyStatement) ||
+    !isNonEmptyString(why.depth_note, MAX_FIELD_LENGTHS.whyDepthNote)
+  ) {
     throw new Error('Invalid analysis response');
   }
 
@@ -102,7 +122,7 @@ function validateShape(data: unknown): AnalysisResult {
   const what: WhatItem[] = obj.what.map((item, i) => validateWhatItem(item, i));
 
   // Validate positioning_note
-  if (!isNonEmptyString(obj.positioning_note)) {
+  if (!isNonEmptyString(obj.positioning_note, MAX_FIELD_LENGTHS.positioningNote)) {
     throw new Error('Invalid analysis response');
   }
 

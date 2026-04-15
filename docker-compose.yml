@@ -24,3 +24,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache

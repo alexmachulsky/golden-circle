@@ -93,8 +93,9 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Dependency audit
-        # Fail on HIGH or CRITICAL severity vulnerabilities
-        run: npm audit --audit-level=high
+        # Fail on MODERATE, HIGH, or CRITICAL severity vulnerabilities.
+        # MODERATE covers ReDoS, XXE, and data-handling bugs in transitive deps.
+        run: npm audit --audit-level=moderate
 
   # ── 3. PACKAGE ────────────────────────────────────────────────────────────
   package:

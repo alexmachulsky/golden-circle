@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Keep GitHub Actions SHA-pinned versions up to date.
+  # Dependabot will propose PRs when a new release is available for any
+  # action used in .github/workflows/, so security patches are applied
+  # without requiring manual SHA rotation.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+
+  # Keep npm dependencies patched for MODERATE+ vulnerabilities.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps"

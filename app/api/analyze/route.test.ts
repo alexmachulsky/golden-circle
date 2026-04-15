@@ -184,7 +184,7 @@ describe("Error message hygiene", () => {
     delete process.env.GROQ_API_KEY;
     const req = makeReq({});
     const res = await POST(req);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.error).not.toContain("GROQ_API_KEY");
     expect(json.error).not.toContain("configure");

@@ -15,6 +15,14 @@ const UPSTREAM_TIMEOUT_MS = 30_000;
 
 function sanitizeInput(input: string): string {
   return input
+    // Decode common HTML entities before stripping so encoded variants
+    // (e.g. &lt;script&gt;, &#60;, &#x3C;) cannot bypass the tag regex.
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x[0-9a-f]+;/gi, "")
+    .replace(/&#\d+;/g, "")
     .replace(/<[^>]*>/g, "") // strip HTML/XML tags
     .trim()
     .slice(0, 2000);
@@ -91,7 +99,9 @@ export async function POST(req: Request) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     console.error("[analyze] GROQ_API_KEY is not set");
-    return Response.json({ error: "Service unavailable." }, { status: 500, headers: ERROR_HEADERS });
+    // 503 (not 500) — missing config is an infrastructure issue, not a code
+    // bug. Using a consistent 5xx code prevents status-code fingerprinting.
+    return Response.json({ error: "Service unavailable." }, { status: 503, headers: ERROR_HEADERS });
   }
 
   // ── Validate businessIdea ───────────────────────────────────────────────
@@ -134,9 +144,21 @@ export async function POST(req: Request) {
           { signal: ac.signal },
         );
 
+        // Cap total streamed bytes server-side. max_tokens: 1024 is the
+        // primary limit; this is a defence-in-depth guard against a runaway
+        // or adversarial upstream response.
+        const SERVER_STREAM_CAP = 16_000;
+        let streamedBytes = 0;
+
         for await (const chunk of stream) {
           const text = chunk.choices[0]?.delta?.content;
           if (text) {
+            streamedBytes += encoder.encode(text).byteLength;
+            if (streamedBytes > SERVER_STREAM_CAP) {
+              controller.enqueue(encoder.encode("__ERROR__Response too large. Please try again."));
+              controller.close();
+              return;
+            }
             controller.enqueue(encoder.encode(text));
           }
         }
