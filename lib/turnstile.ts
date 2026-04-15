@@ -53,9 +53,7 @@ export async function verifyTurnstileToken(options: {
   const config = getTurnstileConfig(env)
 
   if (!config) {
-    if (env.NODE_ENV === "production") {
-      throw new TurnstileError(503, "Service unavailable.", "Turnstile is required in production.")
-    }
+    // Turnstile is optional — if neither key is configured, skip verification.
     return
   }
 
