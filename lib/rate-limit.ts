@@ -1,3 +1,5 @@
+import { readRuntimeValue } from "@/lib/runtime-env"
+
 /**
  * Rate limiting for /api/analyze.
  *
@@ -74,8 +76,15 @@ function normalizeClientKey(rawValue: string | null): string {
 function getUpstashConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): { url: string; token: string } | null {
-  const url = env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  let url: string | null
+  let token: string | null
+
+  try {
+    url = readRuntimeValue("UPSTASH_REDIS_REST_URL", env)
+    token = readRuntimeValue("UPSTASH_REDIS_REST_TOKEN", env)
+  } catch (error: unknown) {
+    throw new RateLimitError("Failed to read shared rate-limit backend configuration.", { cause: error })
+  }
 
   if (!url && !token) {
     return null;

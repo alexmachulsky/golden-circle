@@ -8,19 +8,39 @@ services:
     container_name: golden-circle
     restart: unless-stopped
     ports:
-      - "7001:7001"
+      - "127.0.0.1:7001:7001"
     environment:
       NODE_ENV: production
+      GROQ_API_KEY: ""
+      GROQ_API_KEY_FILE: /run/secrets/groq_api_key
+      UPSTASH_REDIS_REST_TOKEN: ""
+      UPSTASH_REDIS_REST_TOKEN_FILE: /run/secrets/upstash_redis_rest_token
+      TURNSTILE_SECRET_KEY: ""
+      TURNSTILE_SECRET_KEY_FILE: /run/secrets/turnstile_secret_key
     env_file:
-      # Runtime secrets come from the host .env.local file.
-      # Do not mirror them through ${...} here: compose interpolation happens
-      # before env_file is loaded and can override the real value with empty text.
-      # Public production deployments should run behind a trusted reverse proxy
-      # and include UPSTASH_REDIS_REST_* plus TRUSTED_IP_HEADER in .env.local.
+      # Non-secret runtime config comes from .env.local.
+      # Keep GROQ_API_KEY, UPSTASH_REDIS_REST_TOKEN, and TURNSTILE_SECRET_KEY
+      # out of this file; mount them through Docker secrets instead.
       - .env.local
+    secrets:
+      - groq_api_key
+      - upstash_redis_rest_token
+      - turnstile_secret_key
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:7001/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+
+secrets:
+  groq_api_key:
+    file: ./secrets/groq_api_key.txt
+  upstash_redis_rest_token:
+    file: ./secrets/upstash_redis_rest_token.txt
+  turnstile_secret_key:
+    file: ./secrets/turnstile_secret_key.txt

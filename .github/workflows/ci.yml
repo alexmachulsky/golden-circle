@@ -179,7 +179,6 @@ jobs:
           target: runner
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
           # Reuse cached layers from the package job — no full rebuild
           cache-from: type=gha

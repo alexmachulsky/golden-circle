@@ -15,14 +15,16 @@ import { NextRequest, NextResponse } from "next/server";
  */
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64");
+  const hasTurnstile = Boolean(process.env.TURNSTILE_SITE_KEY?.trim());
 
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${hasTurnstile ? " https://challenges.cloudflare.com" : ""}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "font-src 'self' data:",
-    "connect-src 'self'",
+    `connect-src 'self'${hasTurnstile ? " https://challenges.cloudflare.com" : ""}`,
+    `frame-src 'self'${hasTurnstile ? " https://challenges.cloudflare.com" : ""}`,
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
