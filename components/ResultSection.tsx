@@ -51,6 +51,7 @@ function Tooltip({ text }: { text: string }) {
 
 export default function ResultSection({ result, onReset }: ResultSectionProps) {
   const [activeSection, setActiveSection] = useState<ActiveSection>(null);
+  const [isCopied, setIsCopied] = useState(false);
 
   const handleSectionClick = useCallback((section: NonNullable<ActiveSection>) => {
     setActiveSection((prev) => (prev === section ? null : section));
@@ -77,6 +78,8 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
     ].join('\n');
     try {
       await navigator.clipboard.writeText(text);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
     } catch {
       // Clipboard API unavailable (non-HTTPS context or permission denied)
     }
@@ -126,7 +129,7 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
                 strokeLinecap="round"
               />
             </svg>
-            Copy
+            {isCopied ? 'Copied!' : 'Copy'}
           </button>
           <button
             onClick={handlePrint}
@@ -338,7 +341,7 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
           onClick={handleCopy}
           className="px-6 py-2.5 rounded-xl border border-navy-700 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 text-sm transition-all"
         >
-          Copy to Clipboard
+          {isCopied ? 'Copied!' : 'Copy to Clipboard'}
         </button>
         <button
           onClick={handlePrint}
