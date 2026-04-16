@@ -19,7 +19,9 @@ const UPSTREAM_TIMEOUT_MS = 30_000;
 
 function sanitizeInput(input: string): string {
   return input
-    .replace(/<[^>]*>/g, "") // strip HTML/XML tags
+    .replace(/<[^>]*>?/g, "")                              // strip HTML/XML tags (incl. unclosed)
+    .replace(/[\uFF1C\uFF1E\u2039\u203A\u276E\u276F]/g, "") // strip Unicode angle-bracket lookalikes
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u2028-\u202E\u2060-\u2069\uFEFF]/g, "") // strip control & bidi chars
     .trim()
     .slice(0, MAX_INPUT_LENGTH);
 }
@@ -170,7 +172,7 @@ export async function POST(req: Request) {
             // the error sentinel: accumulate the first 20 chars before streaming.
             if (!checkedPrefix) {
               accumulated += text;
-              if (accumulated.length >= 20 || text.includes("{")) {
+              if (accumulated.length >= 9 && (accumulated.length >= 20 || text.includes("{"))) {
                 checkedPrefix = true;
                 if (accumulated.startsWith("__ERROR__")) {
                   // LLM was injected into emitting the error prefix — reject it.

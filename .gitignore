@@ -56,3 +56,4 @@ AGENTS.md
 
 # Playwright screenshot output
 /output/
+nohup.out

@@ -26,7 +26,7 @@ const nextConfig: NextConfig = {
           // Cross-origin isolation — mitigates Spectre-class timing side-channels
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
           { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
-          // CSP is set per-request in middleware.ts (requires a nonce)
+          // CSP is set per-request in proxy.ts (requires a nonce)
         ],
       },
     ];

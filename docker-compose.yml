@@ -8,7 +8,18 @@ services:
     container_name: golden-circle
     restart: unless-stopped
     ports:
-      - "0.0.0.0:7001:7001"
+      - "127.0.0.1:7001:7001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,noexec,nosuid
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
     environment:
       NODE_ENV: production
       ALLOWED_ORIGINS: "http://localhost:7001,http://192.168.18.241:7001"

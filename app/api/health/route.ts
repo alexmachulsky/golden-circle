@@ -42,16 +42,19 @@ export async function GET() {
     canServeRequests && rateLimitConfigured && trustedProxyConfigured;
   const status = fullyConfigured ? "ok" : "degraded";
 
+  // Only expose aggregate status to unauthenticated callers.
+  // Detailed service breakdown is logged server-side for operators.
+  if (!canServeRequests || !fullyConfigured) {
+    console.warn("[health] degraded:", {
+      groq: groqConfigured ? "ok" : "missing",
+      rateLimit: rateLimitConfigured ? "ok" : "missing",
+      trustedProxy: trustedProxyConfigured ? "ok" : "missing",
+      turnstile: turnstileConfigured ? (turnstileEnabled ? "ok" : "disabled") : "missing",
+    });
+  }
+
   return Response.json(
-    {
-      status,
-      services: {
-        groq: groqConfigured ? "configured" : "missing",
-        rateLimit: rateLimitConfigured ? "configured" : "missing",
-        trustedProxy: trustedProxyConfigured ? "configured" : "missing",
-        turnstile: turnstileConfigured ? (turnstileEnabled ? "configured" : "disabled") : "missing",
-      },
-    },
+    { status },
     {
       status: canServeRequests ? 200 : 503,
       headers: { "Cache-Control": "no-store" },

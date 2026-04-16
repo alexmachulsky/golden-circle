@@ -49,12 +49,6 @@ describe("/api/health", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({
       status: "degraded",
-      services: {
-        groq: "configured",
-        rateLimit: "missing",
-        trustedProxy: "missing",
-        turnstile: "disabled",
-      },
     });
   });
 
@@ -74,12 +68,6 @@ describe("/api/health", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({
       status: "ok",
-      services: {
-        groq: "configured",
-        rateLimit: "configured",
-        trustedProxy: "configured",
-        turnstile: "configured",
-      },
     });
   });
 });
