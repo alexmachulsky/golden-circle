@@ -96,7 +96,7 @@ jobs:
         # Fail on HIGH or CRITICAL severity vulnerabilities
         run: npm audit --audit-level=high
 
-  # ── 3. PACKAGE ────────────────────────────────────────────────────────────
+  # ── 4. PACKAGE ────────────────────────────────────────────────────────────
   package:
     name: Package & Scan
     runs-on: ubuntu-latest
@@ -152,7 +152,7 @@ jobs:
           trivyignores: .trivyignore
           skip-setup-trivy: true
 
-  # ── 4. PUBLISH ────────────────────────────────────────────────────────────
+  # ── 5. PUBLISH ────────────────────────────────────────────────────────────
   publish:
     name: Publish to GHCR
     runs-on: ubuntu-latest
@@ -185,6 +185,7 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
           # Reuse cached layers from the package job — no full rebuild
           cache-from: type=gha
           cache-to: type=gha,mode=max

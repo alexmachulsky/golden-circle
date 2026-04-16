@@ -18,11 +18,9 @@ export default function InputForm({ onSubmit, loading, error, turnstileSiteKey =
   const remaining = MIN_INPUT_LENGTH - input.trim().length;
   const verificationSiteKey = turnstileSiteKey?.trim() ? turnstileSiteKey : null;
   const requiresVerification = Boolean(verificationSiteKey);
-  const verificationUnavailable = process.env.NODE_ENV === 'production' && !verificationSiteKey;
   const canSubmit =
     input.trim().length >= MIN_INPUT_LENGTH &&
     !loading &&
-    !verificationUnavailable &&
     (!requiresVerification || Boolean(turnstileToken));
 
   return (
@@ -146,12 +144,6 @@ export default function InputForm({ onSubmit, loading, error, turnstileSiteKey =
       {error && (
         <div className="mt-5 p-4 rounded-xl bg-red-500/8 border border-red-500/25 text-red-400 text-sm">
           {error}
-        </div>
-      )}
-
-      {verificationUnavailable && (
-        <div className="mt-5 p-4 rounded-xl bg-amber-500/8 border border-amber-500/25 text-amber-300 text-sm">
-          Human verification is unavailable right now. Please try again later.
         </div>
       )}
 
