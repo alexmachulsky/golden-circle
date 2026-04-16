@@ -215,13 +215,12 @@ describe("Rate limit guard", () => {
     expect(results.filter((s) => s === 429).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("returns 503 in production when Redis is not configured", async () => {
+  it("falls back to in-memory rate limiting in production when Redis is not configured", async () => {
     setNodeEnv("production");
 
+    // Should NOT 503 — in-memory fallback is used, request proceeds to GROQ_API_KEY check
     const res = await POST(makeReq({}));
-    expect(res.status).toBe(503);
-    await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(res.status).not.toBe(503);
   });
 
   it("returns 503 in production when the trusted client identity is missing", async () => {

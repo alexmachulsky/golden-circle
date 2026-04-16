@@ -35,8 +35,12 @@ export async function GET() {
     turnstileConfigured = false;
   }
 
-  const ok = groqConfigured && rateLimitConfigured && trustedProxyConfigured && turnstileConfigured;
-  const status = ok ? "ok" : "degraded";
+  // The app can serve requests as long as Groq is configured and Turnstile is not
+  // partially configured (site key without secret, or vice versa).
+  const canServeRequests = groqConfigured && turnstileConfigured;
+  const fullyConfigured =
+    canServeRequests && rateLimitConfigured && trustedProxyConfigured;
+  const status = fullyConfigured ? "ok" : "degraded";
 
   return Response.json(
     {
@@ -49,7 +53,7 @@ export async function GET() {
       },
     },
     {
-      status: ok ? 200 : 503,
+      status: canServeRequests ? 200 : 503,
       headers: { "Cache-Control": "no-store" },
     },
   );

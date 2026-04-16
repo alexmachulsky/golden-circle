@@ -38,13 +38,15 @@ afterEach(() => {
 });
 
 describe("/api/health", () => {
-  it("returns 503 in production when shared rate limiting is not configured", async () => {
+  it("returns 200 with degraded status in production when Redis and proxy are not configured", async () => {
     setNodeEnv("production");
     process.env.GROQ_API_KEY = "groq-key";
 
     const res = await GET();
 
-    expect(res.status).toBe(503);
+    // The app can still serve requests with in-memory rate limiting; only
+    // the JSON status signals the missing optional infrastructure.
+    expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({
       status: "degraded",
       services: {

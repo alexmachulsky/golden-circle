@@ -207,7 +207,7 @@ export async function checkRateLimit(
   }
 
   if (isProduction()) {
-    throw new RateLimitError("Shared rate limiting must be configured in production.");
+    console.warn("[rate-limit] Upstash Redis not configured; falling back to in-memory limiting.");
   }
 
   return checkRateLimitInMemory(key, { limit, windowMs });
@@ -233,9 +233,12 @@ export function getClientKey(req: Request, trustedIpHeader: string | null = null
 
   if (isProduction()) {
     if (!trustedIpHeader) {
-      throw new RateLimitError("TRUSTED_IP_HEADER must be configured in production.");
+      console.warn("[rate-limit] TRUSTED_IP_HEADER not set; using shared in-memory bucket for all clients.");
+      return LOCAL_KEY;
     }
 
+    // Header name is configured but absent from this request — fail closed so
+    // requests that bypass the reverse proxy are rejected.
     throw new RateLimitError(
       `Missing trusted client identity header: ${trustedIpHeader}.`,
     );

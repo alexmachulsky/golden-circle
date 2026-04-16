@@ -80,12 +80,11 @@ describe('checkRateLimit', () => {
     await expect(checkRateLimit(keyB, { limit: 1, windowMs: 60_000 })).resolves.toBe(true);
   });
 
-  it("fails closed in production when Redis is not configured", async () => {
+  it("falls back to in-memory rate limiting in production when Redis is not configured", async () => {
     setNodeEnv("production");
 
-    await expect(checkRateLimit("test-production", { limit: 1, windowMs: 60_000 })).rejects.toThrow(
-      RateLimitError,
-    );
+    // Should NOT throw — in-memory fallback is used, request proceeds
+    await expect(checkRateLimit("test-production", { limit: 1, windowMs: 60_000 })).resolves.toBe(true);
   });
 
   it("uses the Upstash transaction API when production Redis credentials are configured", async () => {
@@ -193,10 +192,11 @@ describe("getClientKey", () => {
     expect(getClientKey(req, null)).toBe("__local__");
   });
 
-  it("fails closed in production when TRUSTED_IP_HEADER is not configured", () => {
+  it("falls back to __local__ in production when TRUSTED_IP_HEADER is not configured", () => {
     setNodeEnv("production");
     const req = makeReq({});
-    expect(() => getClientKey(req, null)).toThrow(RateLimitError);
+    // No throw — shared in-memory bucket is used
+    expect(getClientKey(req, null)).toBe("__local__");
   });
 
   it("fails closed in production when the trusted header is absent on the request", () => {
