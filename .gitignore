@@ -52,3 +52,7 @@ AGENTS.md
 .github/copilot-instructions.md
 .codex
 .playwright-mcp/
+.playwright-cli/
+
+# Playwright screenshot output
+/output/

@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: golden-circle
+  namespace: golden-circle
+  labels:
+    app.kubernetes.io/name: golden-circle
+    app.kubernetes.io/component: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: golden-circle
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: golden-circle
+        app.kubernetes.io/component: web
+    spec:
+      # Mirror the Dockerfile's non-root user
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+
+      containers:
+        - name: golden-circle
+          image: golden-circle:latest
+          # Never pull — image is loaded directly into Minikube's Docker daemon.
+          # For EKS: change to IfNotPresent and set image to your GHCR path.
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 7001
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: golden-circle-config
+
+          env:
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: golden-circle-secrets
+                  key: groq-api-key
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # Next.js standalone writes tmp files
+            capabilities:
+              drop:
+                - ALL

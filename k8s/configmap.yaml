@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: golden-circle-config
+  namespace: golden-circle
+  labels:
+    app.kubernetes.io/name: golden-circle
+data:
+  NODE_ENV: "production"
+  NEXT_TELEMETRY_DISABLED: "1"
+  PORT: "7001"
+  HOSTNAME: "0.0.0.0"
+  # For the Minikube POC we access via kubectl port-forward on localhost:7001.
+  # For EKS: replace with your ALB/ingress URL, e.g. https://golden-circle.example.com
+  # Minikube POC: port-forward maps to :7002. EKS: set to your ALB/ingress URL.
+  ALLOWED_ORIGINS: "http://localhost:7001,http://localhost:7002,http://192.168.18.241:7002"
+  RATE_LIMIT_PER_MIN: "20"
