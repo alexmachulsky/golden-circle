@@ -1,15 +1,9 @@
 import type { Metadata, Viewport } from 'next';
-import { Geist } from 'next/font/google';
 import { headers } from 'next/headers';
 import Script from 'next/script';
 import { buildThemeScript } from '@/lib/theme';
 import { getTurnstileSiteKey } from '@/lib/turnstile';
 import './globals.css';
-
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
 
 export const metadata: Metadata = {
   title: 'Golden Circle Analyzer | AI-Powered Business Strategy',
@@ -42,7 +36,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} h-full antialiased`}
+      className="h-full antialiased"
       data-theme="dark"
       suppressHydrationWarning
     >

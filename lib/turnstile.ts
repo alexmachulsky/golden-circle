@@ -19,8 +19,7 @@ export class TurnstileError extends Error {
 }
 
 export function getTurnstileSiteKey(env: NodeJS.ProcessEnv = process.env): string | null {
-  const raw = env.TURNSTILE_SITE_KEY?.trim()
-  return raw ? raw : null
+  return readRuntimeValue("TURNSTILE_SITE_KEY", env)
 }
 
 function getTurnstileSecretKey(env: NodeJS.ProcessEnv = process.env): string | null {

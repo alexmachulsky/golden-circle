@@ -15,7 +15,7 @@
   --color-gold-600: #d97706;
   --color-gold-700: #b45309;
 
-  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-sans: "Segoe UI", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
 }
 
 :root {
@@ -89,7 +89,7 @@ html,
 body {
   background-color: var(--color-navy-950);
   color: var(--color-slate-100);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 body {

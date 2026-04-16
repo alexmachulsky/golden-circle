@@ -28,7 +28,7 @@ export function parseAnalysis(text: string): AnalysisResult {
   cleaned = cleaned.slice(start, end + 1);
 
   // Fix trailing commas before ] or } (common LLM mistake)
-  cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+  cleaned = stripTrailingCommas(cleaned);
 
   let parsed: unknown;
   try {
@@ -38,6 +38,50 @@ export function parseAnalysis(text: string): AnalysisResult {
   }
 
   return validateShape(parsed);
+}
+
+function stripTrailingCommas(value: string): string {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < value.length; i += 1) {
+    const current = value[i];
+
+    if (escaped) {
+      result += current;
+      escaped = false;
+      continue;
+    }
+
+    if (current === "\\") {
+      result += current;
+      escaped = true;
+      continue;
+    }
+
+    if (current === "\"") {
+      inString = !inString;
+      result += current;
+      continue;
+    }
+
+    if (!inString && current === ",") {
+      let lookahead = i + 1;
+      while (lookahead < value.length && /\s/.test(value[lookahead]!)) {
+        lookahead += 1;
+      }
+
+      const nextChar = value[lookahead];
+      if (nextChar === "}" || nextChar === "]") {
+        continue;
+      }
+    }
+
+    result += current;
+  }
+
+  return result;
 }
 
 function isNonEmptyString(v: unknown, maxLen?: number): v is string {

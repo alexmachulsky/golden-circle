@@ -55,6 +55,15 @@ describe('parseAnalysis — happy path', () => {
     const result = parseAnalysis(padded);
     expect(result.why.statement).toBeTruthy();
   });
+
+  it('does not rewrite comma-brace sequences inside quoted strings', () => {
+    const obj = JSON.parse(makeValidJson());
+    obj.positioning_note = 'Keep the literal sequences ,} and ,] exactly as written.';
+
+    const result = parseAnalysis(JSON.stringify(obj));
+
+    expect(result.positioning_note).toBe('Keep the literal sequences ,} and ,] exactly as written.');
+  });
 });
 
 describe('parseAnalysis — wrong item counts', () => {

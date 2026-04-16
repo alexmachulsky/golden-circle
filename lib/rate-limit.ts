@@ -5,10 +5,10 @@ import { readRuntimeValue } from "@/lib/runtime-env"
  *
  * - Production uses Upstash Redis REST transactions so counters are shared
  *   across replicas and survive process restarts.
+ * - Production fails closed unless both the shared backend and the trusted
+ *   client-identity header are configured.
  * - Non-production falls back to an in-memory Map for local development and
  *   tests where a shared backend is unnecessary.
- * - Production also requires a trusted client-identity header; otherwise the
- *   request fails closed instead of collapsing all users into one bucket.
  */
 
 interface Entry {
@@ -207,11 +207,7 @@ export async function checkRateLimit(
   }
 
   if (isProduction()) {
-    // Redis not configured — fall back to in-memory rate limiting with a
-    // warning. This is less strict than distributed limiting (counters are
-    // per-process and reset on restart) but keeps the app functional when
-    // Upstash is not yet provisioned.
-    console.warn("[rate-limit] Upstash Redis not configured; falling back to in-memory limiting.");
+    throw new RateLimitError("Shared rate limiting must be configured in production.");
   }
 
   return checkRateLimitInMemory(key, { limit, windowMs });
@@ -224,7 +220,7 @@ export async function checkRateLimit(
  * injected by a trusted reverse proxy after stripping any inbound copy.
  *
  * Outside production, the function falls back to a shared local key so the app
- * can run without a proxy or Redis during development and tests.
+ * can run without a proxy during development and tests.
  */
 export function getClientKey(req: Request, trustedIpHeader: string | null = null): string {
   const trustedValue = normalizeClientKey(
@@ -237,11 +233,7 @@ export function getClientKey(req: Request, trustedIpHeader: string | null = null
 
   if (isProduction()) {
     if (!trustedIpHeader) {
-      // No reverse proxy configured — fall back to a shared in-process bucket.
-      // All requests share one counter; it resets on restart. Acceptable for
-      // single-container deployments where IP spoofing isn't a concern.
-      console.warn("[rate-limit] TRUSTED_IP_HEADER not set; using shared in-memory bucket for all clients.");
-      return LOCAL_KEY;
+      throw new RateLimitError("TRUSTED_IP_HEADER must be configured in production.");
     }
 
     throw new RateLimitError(

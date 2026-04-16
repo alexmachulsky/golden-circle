@@ -121,6 +121,7 @@ beforeEach(() => {
   delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
   delete process.env.GROQ_API_KEY_FILE;
   delete process.env.TURNSTILE_SITE_KEY;
+  delete process.env.TURNSTILE_SITE_KEY_FILE;
   delete process.env.TURNSTILE_SECRET_KEY;
   delete process.env.TURNSTILE_SECRET_KEY_FILE;
 });
@@ -133,6 +134,7 @@ afterEach(() => {
   delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
   delete process.env.GROQ_API_KEY_FILE;
   delete process.env.TURNSTILE_SITE_KEY;
+  delete process.env.TURNSTILE_SITE_KEY_FILE;
   delete process.env.TURNSTILE_SECRET_KEY;
   delete process.env.TURNSTILE_SECRET_KEY_FILE;
   setNodeEnv("test");
@@ -213,12 +215,13 @@ describe("Rate limit guard", () => {
     expect(results.filter((s) => s === 429).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("falls back to in-memory rate limiting in production when Redis is not configured", async () => {
+  it("returns 503 in production when Redis is not configured", async () => {
     setNodeEnv("production");
 
-    // Should NOT 503 — in-memory fallback is used, request proceeds to GROQ_API_KEY check
     const res = await POST(makeReq({}));
-    expect(res.status).not.toBe(503);
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it("returns 503 in production when the trusted client identity is missing", async () => {
@@ -371,6 +374,32 @@ describe("Challenge verification", () => {
     await expect(collectStream(res)).resolves.toBe("{}");
     const challengeBody = String(fetchMock.mock.calls[1]?.[1]?.body ?? "");
     expect(challengeBody).toContain("secret=file-secret");
+  });
+
+  it("accepts TURNSTILE_SITE_KEY_FILE when Turnstile is enabled", async () => {
+    setNodeEnv("production");
+    process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "secret-token";
+    delete process.env.TURNSTILE_SITE_KEY;
+    process.env.TURNSTILE_SITE_KEY_FILE = createSecretFile("turnstile-site-key.txt", "file-site-key");
+    process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
+    const fetchMock = mockProductionFetch();
+
+    mockCreate.mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: { content: "{}" } }] };
+      })(),
+    );
+
+    const res = await POST(makeReq({
+      headers: { "x-client-ip": "203.0.113.10" },
+      body: { businessIdea: DEFAULT_IDEA, turnstileToken: "token-from-widget" },
+    }));
+
+    expect(res.status).toBe(200);
+    await expect(collectStream(res)).resolves.toBe("{}");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

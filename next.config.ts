@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  turbopack: {
+    root: path.resolve(__dirname),
+  },
   // Remove the X-Powered-By: Next.js header
   poweredByHeader: false,
   async headers() {
