@@ -115,13 +115,15 @@ export async function POST(req: Request) {
     return Response.json({ error: "businessIdea is required." }, { status: 400, headers: ERROR_HEADERS });
   }
 
-  const sanitized = sanitizeInput(rawBody.businessIdea);
-  if (sanitized.length < MIN_INPUT_LENGTH) {
+  const rawInput = rawBody.businessIdea.trim();
+  if (rawInput.length < MIN_INPUT_LENGTH) {
     return Response.json(
       { error: `Please provide at least ${MIN_INPUT_LENGTH} characters describing your business idea.` },
       { status: 400, headers: ERROR_HEADERS },
     );
   }
+
+  const sanitized = sanitizeInput(rawBody.businessIdea);
 
   // ── Guard 6: Human verification ────────────────────────────────────────
   try {

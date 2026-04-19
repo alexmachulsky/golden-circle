@@ -27,7 +27,12 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const turnstileSiteKey = getTurnstileSiteKey();
+  let turnstileSiteKey: string | null = null;
+  try {
+    turnstileSiteKey = getTurnstileSiteKey();
+  } catch (e) {
+    console.error("[layout] Failed to read Turnstile site key:", e);
+  }
   // Read the per-request nonce injected by middleware.ts so Next.js can
   // attach it to any inline scripts/styles it generates during SSR.
   const headersList = await headers();

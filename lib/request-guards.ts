@@ -20,7 +20,7 @@ export class HttpError extends Error {
  */
 export function assertJsonContentType(req: Request): void {
   const ct = req.headers.get('content-type') ?? '';
-  if (!ct.toLowerCase().includes('application/json')) {
+  if (!ct.toLowerCase().split(';')[0].trim().startsWith('application/json')) {
     throw new HttpError(415, 'Content-Type must be application/json.');
   }
 }

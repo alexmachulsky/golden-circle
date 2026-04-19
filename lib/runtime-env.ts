@@ -19,6 +19,12 @@ export function readRuntimeValue(
   name: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
+  // Direct environment variables take precedence over file-backed values.
+  const directValue = env[name]?.trim()
+  if (directValue) {
+    return directValue
+  }
+
   const filePath = env[`${name}_FILE`]?.trim()
   if (filePath) {
     // In production (and not running under the test runner), enforce that secret
@@ -42,6 +48,5 @@ export function readRuntimeValue(
     }
   }
 
-  const directValue = env[name]?.trim()
-  return directValue ? directValue : null
+  return null
 }

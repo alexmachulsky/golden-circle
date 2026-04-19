@@ -145,7 +145,7 @@ export default function InputForm({ onSubmit, loading, error, turnstileSiteKey =
 
       {/* Error */}
       {error && (
-        <div className="mt-5 p-4 rounded-xl bg-red-500/8 border border-red-500/25 text-red-400 text-sm">
+        <div role="alert" className="mt-5 p-4 rounded-xl bg-red-500/8 border border-red-500/25 text-red-400 text-sm">
           {error}
         </div>
       )}

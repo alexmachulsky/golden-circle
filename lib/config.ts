@@ -8,11 +8,21 @@ const raw = process.env.ALLOWED_ORIGINS ?? 'http://localhost:7001';
 export const ALLOWED_ORIGINS: string[] = raw
   .split(',')
   .map((o) => o.trim())
-  .filter(Boolean);
+  .filter(Boolean)
+  .filter((origin) => {
+    try {
+      const url = new URL(origin);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+      console.warn(`[config] Ignoring invalid origin: ${origin}`);
+      return false;
+    }
+  });
 
 const rawLimit = process.env.RATE_LIMIT_PER_MIN;
 const parsedLimit = rawLimit ? parseInt(rawLimit, 10) : NaN;
-export const RATE_LIMIT_PER_MIN: number = (!isNaN(parsedLimit) && parsedLimit > 0)
+const MAX_RATE_LIMIT = 600;
+export const RATE_LIMIT_PER_MIN: number = (!isNaN(parsedLimit) && parsedLimit > 0 && parsedLimit <= MAX_RATE_LIMIT)
   ? parsedLimit
   : 20;
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import InputForm from '@/components/InputForm';
 import LoadingState from '@/components/LoadingState';
 import ResultSection from '@/components/ResultSection';
@@ -18,8 +18,27 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
   const [appState, setAppState] = useState<AppState>('input');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight request on unmount
+  useEffect(() => {
+    return () => { abortControllerRef.current?.abort(); };
+  }, []);
+
+  // Guard: if result state is reached with no data, reset to input
+  useEffect(() => {
+    if (appState === 'result' && !result) {
+      setError('Something went wrong. Please try again.');
+      setAppState('input');
+    }
+  }, [appState, result]);
 
   const handleSubmit = useCallback(async (input: string, turnstileToken: string | null = null) => {
+    // Cancel any previous in-flight request
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setError(null);
     setAppState('loading');
 
@@ -28,6 +47,7 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ businessIdea: input.trim(), turnstileToken }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -49,6 +69,8 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
           throw new Error("Response too large. Please try again.");
         }
       }
+      // Flush any remaining buffered bytes from the decoder
+      fullText += decoder.decode();
 
       // Check for server-side error signal. Cap and strip the suffix so a
       // prompt-injected response can never surface arbitrary text as a UI error.
@@ -67,6 +89,7 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
       setResult(parsed);
       setAppState('result');
     } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       const message = err instanceof Error ? err.message : 'Something went wrong';
       setError(message);
       setAppState('input');

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import GoldenCircle from '@/components/GoldenCircle';
 import type { AnalysisResult, ActiveSection } from '@/types';
@@ -26,8 +26,11 @@ const TOOLTIPS = {
     'WHAT items are framed as tangible proof of the WHY belief — not a flat product list, but evidence that the belief is real.',
 };
 
+let tooltipIdCounter = 0;
+
 function Tooltip({ text }: { text: string }) {
   const [show, setShow] = useState(false);
+  const [tooltipId] = useState(() => `tooltip-${++tooltipIdCounter}`);
   return (
     <span className="relative inline-block">
       <button
@@ -37,11 +40,16 @@ function Tooltip({ text }: { text: string }) {
         onBlur={() => setShow(false)}
         className="w-4 h-4 rounded-full border border-slate-600 text-slate-500 hover:border-gold-500/50 hover:text-gold-500 transition-colors text-[10px] font-bold leading-none flex items-center justify-center"
         aria-label="More information"
+        aria-describedby={show ? tooltipId : undefined}
       >
         i
       </button>
       {show && (
-        <span className="absolute left-6 top-0 z-20 w-64 p-3 rounded-lg bg-navy-800 border border-gold-500/15 text-slate-400 text-xs leading-relaxed shadow-xl">
+        <span
+          id={tooltipId}
+          role="tooltip"
+          className="absolute left-6 top-0 z-20 w-64 p-3 rounded-lg bg-navy-800 border border-gold-500/15 text-slate-400 text-xs leading-relaxed shadow-xl"
+        >
           {text}
         </span>
       )}
@@ -51,19 +59,24 @@ function Tooltip({ text }: { text: string }) {
 
 export default function ResultSection({ result, onReset }: ResultSectionProps) {
   const [activeSection, setActiveSection] = useState<ActiveSection>(null);
-  const [isCopied, setIsCopied] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up copy-success timer on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   const handleSectionClick = useCallback((section: NonNullable<ActiveSection>) => {
     setActiveSection((prev) => (prev === section ? null : section));
   }, []);
 
   const handleCopy = useCallback(async () => {
-    // Strip control characters (including CR/LF) from each LLM-sourced field
-    // before writing to clipboard — prevents "paste-jacking" where a crafted
-    // value containing '\n' followed by a shell command executes on paste into
-    // a terminal. The join('\n') below is the only intentional line separator.
+    // Strip ASCII controls and Unicode bidi/invisible characters from LLM output
     const safe = (s: string) =>
-      s.replace(/[\x00-\x1F\x7F]/g, ' ').trim();
+      s.replace(/[\x00-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, ' ').trim();
 
     const text = [
       `WHY — ${safe(result.why.statement)}`,
@@ -78,11 +91,12 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
     ].join('\n');
     try {
       await navigator.clipboard.writeText(text);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
+      setCopyState('copied');
     } catch {
-      // Clipboard API unavailable (non-HTTPS context or permission denied)
+      setCopyState('failed');
     }
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopyState('idle'), 2000);
   }, [result]);
 
   const handlePrint = useCallback(() => {
@@ -129,7 +143,7 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
                 strokeLinecap="round"
               />
             </svg>
-            {isCopied ? 'Copied!' : 'Copy'}
+            {copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? 'Copy failed' : 'Copy'}
           </button>
           <button
             onClick={handlePrint}
@@ -341,7 +355,7 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
           onClick={handleCopy}
           className="px-6 py-2.5 rounded-xl border border-navy-700 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 text-sm transition-all"
         >
-          {isCopied ? 'Copied!' : 'Copy to Clipboard'}
+          {copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? 'Copy failed' : 'Copy to Clipboard'}
         </button>
         <button
           onClick={handlePrint}

@@ -56,10 +56,19 @@ export default function GoldenCircle({
     animate: animate ? ('visible' as const) : undefined,
     custom: delay,
     onClick: () => onSectionClick(section),
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onSectionClick(section);
+      }
+    },
+    tabIndex: 0,
+    role: 'button' as const,
+    'aria-label': `${section.toUpperCase()} section`,
   });
 
   return (
-    <svg width="320" height="320" viewBox="0 0 320 320" className="w-full max-w-[320px]">
+    <svg width="320" height="320" viewBox="0 0 320 320" className="w-full max-w-[320px]" role="img" aria-label="Golden Circle diagram with WHY, HOW, and WHAT rings">
       {/* WHAT ring */}
       <motion.path
         d={annulusPath(cx, cy, HOW_R, WHAT_R)}
