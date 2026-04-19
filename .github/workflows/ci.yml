@@ -1,12 +1,11 @@
 name: CI/CD Pipeline
 
 # ─────────────────────────────────────────────
-# Pipeline stages
-#   1. build    — compile source, produce Next.js artifacts
-#   2. test     — unit tests (Vitest + React Testing Library)
-#   3. analyze  — lint, type-check, dependency audit
-#   4. package  — Docker image build + Trivy vulnerability scan → SARIF
-#   5. publish  — push image to GHCR (main branch, production environment)
+# Pipeline stages (sequential)
+#   1. build   — compile source, produce Next.js artifacts
+#   2. verify  — unit tests, lint, type-check, dependency audit
+#   3. package — Docker image build + Trivy vulnerability scan → SARIF
+#   4. publish — push image to GHCR (main branch, production environment)
 # ─────────────────────────────────────────────
 
 on:
@@ -36,9 +35,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
 
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v4
         with:
           node-version: 20
           cache: npm
@@ -51,16 +50,16 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
           # GROQ_API_KEY is runtime-only — not consumed by next build
 
-  # ── 2. TEST ───────────────────────────────────────────────────────────────
-  test:
-    name: Test
+  # ── 2. VERIFY ─────────────────────────────────────────────────────────────
+  verify:
+    name: Test & Code Analysis
     runs-on: ubuntu-latest
     needs: build
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
 
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v4
         with:
           node-version: 20
           cache: npm
@@ -70,22 +69,6 @@ jobs:
       - name: Run tests
         run: npm test
 
-  # ── 3. ANALYZE ────────────────────────────────────────────────────────────
-  analyze:
-    name: Code Analysis
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6
-        with:
-          node-version: 20
-          cache: npm
-
-      - run: npm ci --ignore-scripts
-
       - name: Lint
         run: npm run lint
 
@@ -93,21 +76,21 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Dependency audit
-        # Fail on HIGH or CRITICAL severity vulnerabilities
-        run: npm audit --audit-level=high
+        # Audit only production dependencies; dev deps don't reach the container
+        run: npm audit --audit-level=high --omit=dev
 
-  # ── 4. PACKAGE ────────────────────────────────────────────────────────────
+  # ── 3. PACKAGE ────────────────────────────────────────────────────────────
   package:
     name: Package & Scan
     runs-on: ubuntu-latest
-    needs: analyze
+    needs: verify
 
     permissions:
       contents: read
       security-events: write  # required to upload SARIF to GitHub Security
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
 
@@ -152,7 +135,7 @@ jobs:
           trivyignores: .trivyignore
           skip-setup-trivy: true
 
-  # ── 5. PUBLISH ────────────────────────────────────────────────────────────
+  # ── 4. PUBLISH ────────────────────────────────────────────────────────────
   publish:
     name: Publish to GHCR
     runs-on: ubuntu-latest
@@ -169,7 +152,7 @@ jobs:
       attestations: write
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
 
@@ -191,7 +174,6 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           # Reuse cached layers from the package job — no full rebuild
           cache-from: type=gha
-          cache-to: type=gha,mode=max
           # Emit an SBOM and SLSA provenance attestation; stored in the GHCR OCI registry.
           sbom: true
           provenance: mode=max
