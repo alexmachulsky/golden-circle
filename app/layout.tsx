@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import Script from 'next/script';
-import { buildThemeScript } from '@/lib/theme';
 import { getTurnstileSiteKey } from '@/lib/turnstile';
 import './globals.css';
 
@@ -28,10 +27,11 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Read the nonce injected by middleware.ts so the inline theme bootstrap
-  // script is allowed under the Content-Security-Policy.
-  const nonce = (await headers()).get('x-nonce') ?? undefined;
   const turnstileSiteKey = getTurnstileSiteKey();
+  // Read the per-request nonce injected by middleware.ts so Next.js can
+  // attach it to any inline scripts/styles it generates during SSR.
+  const headersList = await headers();
+  const nonce = headersList.get("x-nonce") ?? undefined;
 
   return (
     <html
@@ -41,7 +41,7 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full">
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: buildThemeScript() }} />
+        <Script src="/theme-init.js" strategy="beforeInteractive" nonce={nonce} />
         {turnstileSiteKey && (
           <Script
             src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"

@@ -4,3 +4,13 @@ metadata:
   name: golden-circle
   labels:
     app.kubernetes.io/name: golden-circle
+    # Pod Security Standards — enforce the "restricted" profile so pods must
+    # be non-root, drop all capabilities, and use a non-privileged seccomp
+    # profile.  "audit" and "warn" give visibility without breaking deploys
+    # that have not been fully hardened yet.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

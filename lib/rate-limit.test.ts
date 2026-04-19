@@ -80,11 +80,12 @@ describe('checkRateLimit', () => {
     await expect(checkRateLimit(keyB, { limit: 1, windowMs: 60_000 })).resolves.toBe(true);
   });
 
-  it("falls back to in-memory rate limiting in production when Redis is not configured", async () => {
+  it("fails closed in production when Redis is not configured", async () => {
     setNodeEnv("production");
 
-    // Should NOT throw — in-memory fallback is used, request proceeds
-    await expect(checkRateLimit("test-production", { limit: 1, windowMs: 60_000 })).resolves.toBe(true);
+    await expect(checkRateLimit("test-production", { limit: 1, windowMs: 60_000 })).rejects.toThrow(
+      RateLimitError,
+    );
   });
 
   it("uses the Upstash transaction API when production Redis credentials are configured", async () => {
@@ -176,9 +177,15 @@ describe("getClientKey", () => {
     expect(getClientKey(req, "x-client-ip")).toBe("1.2.3.4");
   });
 
-  it("normalizes comma-delimited trusted header values to the first hop", () => {
+  it("uses the rightmost IP from comma-delimited trusted header (proxy-injected)", () => {
     const req = makeReq({ "x-client-ip": "1.2.3.4, 5.6.7.8" });
-    expect(getClientKey(req, "x-client-ip")).toBe("1.2.3.4");
+    expect(getClientKey(req, "x-client-ip")).toBe("5.6.7.8");
+  });
+
+  it("rejects a malformed trusted header value in production (fail-closed)", () => {
+    setNodeEnv("production");
+    const req = makeReq({ "x-client-ip": "not-an-ip" });
+    expect(() => getClientKey(req, "x-client-ip")).toThrow(RateLimitError);
   });
 
   it("returns __local__ when no TRUSTED_IP_HEADER is configured outside production", () => {
@@ -192,11 +199,10 @@ describe("getClientKey", () => {
     expect(getClientKey(req, null)).toBe("__local__");
   });
 
-  it("falls back to __local__ in production when TRUSTED_IP_HEADER is not configured", () => {
+  it("fails closed in production when TRUSTED_IP_HEADER is not configured", () => {
     setNodeEnv("production");
     const req = makeReq({});
-    // No throw — shared in-memory bucket is used
-    expect(getClientKey(req, null)).toBe("__local__");
+    expect(() => getClientKey(req, null)).toThrow(RateLimitError);
   });
 
   it("fails closed in production when the trusted header is absent on the request", () => {

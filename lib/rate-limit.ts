@@ -63,14 +63,21 @@ function isProduction(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NODE_ENV === "production";
 }
 
+// Matches a bare IPv4 address or a bracketed/bare IPv6 address, optionally with
+// a port suffix — enough to reject obviously spoofed or malformed header values.
+const VALID_IP_RE =
+  /^(?:\[[\da-fA-F:]+\]|[\da-fA-F:]+|(?:\d{1,3}\.){3}\d{1,3})(?::\d+)?$/;
+
 function normalizeClientKey(rawValue: string | null): string {
   if (!rawValue) {
     return "";
   }
 
-  return rawValue
-    .split(",")[0]
-    ?.trim() ?? "";
+  // x-forwarded-for is a comma-separated list: "client, proxy1, proxy2".
+  // We use the rightmost value (added by our ingress controller, not the client)
+  // so it cannot be spoofed by injecting extra entries at the front.
+  const candidate = rawValue.split(",").at(-1)?.trim() ?? "";
+  return VALID_IP_RE.test(candidate) ? candidate : "";
 }
 
 function getUpstashConfig(
@@ -207,7 +214,7 @@ export async function checkRateLimit(
   }
 
   if (isProduction()) {
-    console.warn("[rate-limit] Upstash Redis not configured; falling back to in-memory limiting.");
+    throw new RateLimitError("Shared rate-limit backend is required in production.");
   }
 
   return checkRateLimitInMemory(key, { limit, windowMs });
@@ -223,6 +230,10 @@ export async function checkRateLimit(
  * can run without a proxy during development and tests.
  */
 export function getClientKey(req: Request, trustedIpHeader: string | null = null): string {
+  if (isProduction() && !trustedIpHeader) {
+    throw new RateLimitError("TRUSTED_IP_HEADER must be configured in production.");
+  }
+
   const trustedValue = normalizeClientKey(
     trustedIpHeader ? req.headers.get(trustedIpHeader) : null,
   );
@@ -232,11 +243,6 @@ export function getClientKey(req: Request, trustedIpHeader: string | null = null
   }
 
   if (isProduction()) {
-    if (!trustedIpHeader) {
-      console.warn("[rate-limit] TRUSTED_IP_HEADER not set; using shared in-memory bucket for all clients.");
-      return LOCAL_KEY;
-    }
-
     // Header name is configured but absent from this request — fail closed so
     // requests that bypass the reverse proxy are rejected.
     throw new RateLimitError(

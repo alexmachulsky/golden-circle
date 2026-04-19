@@ -169,14 +169,27 @@ export async function POST(req: Request) {
           const text = chunk.choices[0]?.delta?.content;
           if (text) {
             // Guard against a prompt-injected LLM response that starts with
-            // the error sentinel: accumulate the first 20 chars before streaming.
+            // the error sentinel.  Buffer until we see the first '{' (start of
+            // the JSON object) or until we have enough bytes to be certain the
+            // sentinel is absent.  Check the entire preamble before '{' so a
+            // sentinel padded with whitespace or split across chunks is still
+            // caught — but only within that pre-JSON window to avoid false
+            // positives on JSON content that mentions the literal string.
             if (!checkedPrefix) {
               accumulated += text;
-              if (accumulated.length >= 9 && (accumulated.length >= 20 || text.includes("{"))) {
+              const braceIndex = accumulated.indexOf("{");
+              const ready = braceIndex !== -1 || accumulated.length >= 64;
+              if (ready) {
                 checkedPrefix = true;
-                if (accumulated.startsWith("__ERROR__")) {
-                  // LLM was injected into emitting the error prefix — reject it.
-                  controller.enqueue(encoder.encode("__ERROR__Analysis failed. Please try again."));
+                // The preamble is everything before the first '{', or the
+                // entire accumulated buffer if no '{' has appeared yet.
+                const preamble =
+                  braceIndex !== -1 ? accumulated.slice(0, braceIndex) : accumulated;
+                if (/^[\s\S]*?__ERROR__/.test(preamble)) {
+                  // LLM was injected into emitting the error prefix — reject.
+                  controller.enqueue(
+                    encoder.encode("__ERROR__Analysis failed. Please try again."),
+                  );
                   controller.close();
                   return;
                 }

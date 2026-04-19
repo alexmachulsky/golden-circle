@@ -89,7 +89,7 @@ mkdir -p secrets
 docker compose up --build
 ```
 
-The compose file binds the app to `127.0.0.1:7001` and expects sensitive values to be mounted as Docker secrets under `/run/secrets/*`. `.dockerignore` excludes local env files from the build context so secrets are never baked into the image.
+The compose stack now fronts the app with the bundled `nginx.conf`, publishes only `127.0.0.1:7001`, and sets `TRUSTED_IP_HEADER=x-real-ip` so production rate limiting can trust the proxy-injected client IP. It expects `UPSTASH_REDIS_REST_URL`, `TURNSTILE_SITE_KEY`, and the Docker-secret-backed values under `/run/secrets/*` to be configured before `/api/analyze` will serve traffic. `.dockerignore` excludes local env files from the build context so secrets are never baked into the image.
 
 Pre-built images are published to GitHub Container Registry on every merge to `main`. Use an immutable tag for production deployments:
 
@@ -124,7 +124,7 @@ GitHub Actions runs on every push and pull request to `main`. The pipeline has f
 ## How it works
 
 1. `components/InputForm.tsx` collects the business idea, shows example prompts, and enforces the 50–2000 character range.
-2. `app/api/analyze/route.ts` sanitizes input, checks for `GROQ_API_KEY`, and streams raw text from Groq back to the browser.
+2. `app/api/analyze/route.ts` sanitizes input, enforces production abuse-protection prerequisites (`TRUSTED_IP_HEADER`, Upstash, Turnstile), checks for `GROQ_API_KEY`, and streams raw text from Groq back to the browser.
 3. `components/GoldenCircleApp.tsx` reads the stream, handles the `__ERROR__` sentinel used for stream-time failures, cleans up common LLM JSON formatting mistakes, and parses the final response into the shared `AnalysisResult` type.
 4. `components/ResultSection.tsx` renders the final strategy breakdown and coordinates the interactive circle UI from `components/GoldenCircle.tsx`.
 
@@ -133,7 +133,7 @@ GitHub Actions runs on every push and pull request to `main`. The pipeline has f
 | Path | Role |
 | --- | --- |
 | `app/page.tsx` | Renders the single-page app shell |
-| `app/layout.tsx` | Root layout; injects theme-bootstrap script before paint |
+| `app/layout.tsx` | Root layout; loads the same-origin theme bootstrap script before paint |
 | `app/api/analyze/route.ts` | Server route that calls Groq and streams the result |
 | `app/globals.css` | Tailwind v4 theme tokens, global styles, and print/PDF rules |
 | `components/GoldenCircleApp.tsx` | Top-level client state machine for `input`, `loading`, and `result` |

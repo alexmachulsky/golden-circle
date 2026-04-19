@@ -1,0 +1,38 @@
+# Dedicated ServiceAccount with no API access.
+# The golden-circle application never calls the Kubernetes API, so the SA has
+# an empty-rules Role and automountServiceAccountToken is disabled to prevent
+# the default token from being injected into the pod.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: golden-circle
+  namespace: golden-circle
+  labels:
+    app.kubernetes.io/name: golden-circle
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: golden-circle
+  namespace: golden-circle
+  labels:
+    app.kubernetes.io/name: golden-circle
+rules: []  # No Kubernetes API access required
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: golden-circle
+  namespace: golden-circle
+  labels:
+    app.kubernetes.io/name: golden-circle
+subjects:
+  - kind: ServiceAccount
+    name: golden-circle
+    namespace: golden-circle
+roleRef:
+  kind: Role
+  name: golden-circle
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,68 @@
+# Default-deny all ingress/egress, then explicitly allow only what the app needs.
+# This applies to both Minikube (for local testing) and EKS (production).
+---
+# ── Ingress: allow traffic into the app pod from the nginx ingress only ──────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: golden-circle-ingress
+  namespace: golden-circle
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: golden-circle
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from the ingress controller namespace.
+    # Adjust the namespaceSelector label if your ingress controller uses a
+    # different namespace label (e.g. kubernetes.io/metadata.name: ingress-nginx).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 7001
+---
+# ── Egress: deny everything, then allow necessary outbound traffic ────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: golden-circle-egress
+  namespace: golden-circle
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: golden-circle
+  policyTypes:
+    - Egress
+  egress:
+    # DNS resolution — locked to CoreDNS/kube-dns in kube-system only.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # HTTPS to external APIs: Groq, Cloudflare Turnstile, Upstash Redis.
+    # All three use CDN/anycast networks with large, frequently rotating CIDR
+    # ranges that cannot be pinned reliably here. For production EKS, route
+    # this egress through an egress gateway or Istio ServiceEntry so DNS-based
+    # allowlisting can be enforced. For the Minikube POC this broad rule is an
+    # accepted operational risk, documented here per policy.
+    - ports:
+        - protocol: TCP
+          port: 443
+
+    # Block the EC2 Instance Metadata Service (IMDS) on EKS to prevent
+    # credential theft if a pod is compromised.
+    # A specific DENY cannot be expressed as an egress "allow" rule, so this
+    # comment serves as an operational reminder.  On EKS, enforce IMDS hop
+    # limit = 1 at the node group level (HttpPutResponseHopLimit: 1) or use
+    # IMDSv2-only mode so that containerised workloads cannot reach the
+    # link-local address 169.254.169.254.

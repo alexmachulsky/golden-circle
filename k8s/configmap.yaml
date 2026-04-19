@@ -14,4 +14,7 @@ data:
   # For EKS: replace with your ALB/ingress URL, e.g. https://golden-circle.example.com
   # Minikube POC: port-forward maps to :7002. EKS: set to your ALB/ingress URL.
   ALLOWED_ORIGINS: "http://localhost:7001,http://localhost:7002,http://192.168.18.241:7002"
+  TRUSTED_IP_HEADER: "x-forwarded-for"
+  TURNSTILE_SITE_KEY: "replace-with-your-public-site-key"
+  UPSTASH_REDIS_REST_URL: "https://replace-with-your-upstash-url"
   RATE_LIMIT_PER_MIN: "20"

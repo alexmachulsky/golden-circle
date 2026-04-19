@@ -17,6 +17,11 @@ spec:
         app.kubernetes.io/name: golden-circle
         app.kubernetes.io/component: web
     spec:
+      # Use the dedicated SA with no Kubernetes API permissions; token is not
+      # mounted so a compromised pod cannot authenticate to the API server.
+      serviceAccountName: golden-circle
+      automountServiceAccountToken: false
+
       # Mirror the Dockerfile's non-root user
       securityContext:
         runAsNonRoot: true
@@ -26,6 +31,10 @@ spec:
 
       containers:
         - name: golden-circle
+          # Minikube POC only — image is loaded directly into Minikube's Docker
+          # daemon via `minikube image load golden-circle:latest`.
+          # For EKS, replace with the pinned GHCR digest published by CI:
+          #   image: ghcr.io/alexmachulsky/golden-circle@sha256:<digest>
           image: golden-circle:latest
           # Never pull — image is loaded directly into Minikube's Docker daemon.
           # For EKS: change to IfNotPresent and set image to your GHCR path.
@@ -45,6 +54,16 @@ spec:
                 secretKeyRef:
                   name: golden-circle-secrets
                   key: groq-api-key
+            - name: UPSTASH_REDIS_REST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: golden-circle-secrets
+                  key: upstash-redis-rest-token
+            - name: TURNSTILE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: golden-circle-secrets
+                  key: turnstile-secret-key
 
           resources:
             requests:

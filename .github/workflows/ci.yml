@@ -164,6 +164,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Required for SLSA provenance attestation
+      id-token: write
+      attestations: write
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
@@ -189,3 +192,6 @@ jobs:
           # Reuse cached layers from the package job — no full rebuild
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Emit an SBOM and SLSA provenance attestation; stored in the GHCR OCI registry.
+          sbom: true
+          provenance: mode=max
