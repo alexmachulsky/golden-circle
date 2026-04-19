@@ -38,16 +38,20 @@ afterEach(() => {
 });
 
 describe("/api/health", () => {
-  it("returns 503 with degraded status in production when Redis and proxy are not configured", async () => {
+  it("returns 200 degraded when Redis and proxy are not configured (optional services)", async () => {
     setNodeEnv("production");
     process.env.GROQ_API_KEY = "groq-key";
 
     const res = await GET();
 
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ status: "degraded" });
+  });
+
+  it("returns 503 when Groq is not configured", async () => {
+    setNodeEnv("production");
+    const res = await GET();
     expect(res.status).toBe(503);
-    await expect(res.json()).resolves.toEqual({
-      status: "degraded",
-    });
   });
 
   it("accepts file-backed GROQ and Turnstile site key configuration", async () => {

@@ -54,7 +54,10 @@ export async function GET() {
   return Response.json(
     { status },
     {
-      status: fullyConfigured ? 200 : 503,
+      // 503 only when the app cannot serve requests at all (Groq missing or
+      // Turnstile misconfigured). Degraded optional services still return 200
+      // so the Docker health check passes.
+      status: canServeRequests ? 200 : 503,
       headers: { "Cache-Control": "no-store" },
     },
   );

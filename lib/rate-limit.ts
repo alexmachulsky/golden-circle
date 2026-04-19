@@ -230,10 +230,6 @@ export async function checkRateLimit(
  * can run without a proxy during development and tests.
  */
 export function getClientKey(req: Request, trustedIpHeader: string | null = null): string {
-  if (isProduction() && !trustedIpHeader) {
-    throw new RateLimitError("TRUSTED_IP_HEADER must be configured in production.");
-  }
-
   const trustedValue = normalizeClientKey(
     trustedIpHeader ? req.headers.get(trustedIpHeader) : null,
   );
@@ -242,13 +238,14 @@ export function getClientKey(req: Request, trustedIpHeader: string | null = null
     return trustedValue;
   }
 
-  if (isProduction()) {
-    // Header name is configured but absent from this request — fail closed so
-    // requests that bypass the reverse proxy are rejected.
+  if (isProduction() && trustedIpHeader) {
+    // Header name is configured but absent or invalid — fail closed so requests
+    // that bypass the reverse proxy are rejected.
     throw new RateLimitError(
       `Missing trusted client identity header: ${trustedIpHeader}.`,
     );
   }
 
+  // No trusted proxy configured: fall back to a shared in-process bucket.
   return LOCAL_KEY;
 }
