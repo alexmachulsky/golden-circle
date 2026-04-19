@@ -1,20 +1,18 @@
 # Golden Circle Analyzer
 
-Golden Circle Analyzer is a Next.js app that turns a rough business idea into a structured **WHY / HOW / WHAT** analysis using Simon Sinek's Golden Circle framework. Users paste a short description of their company, the app streams an AI-generated response, and the result is presented as an interactive concentric-circle visualization with supporting strategy notes.
+[![CI/CD Pipeline](https://github.com/alexmachulsky/golden-circle/actions/workflows/ci.yml/badge.svg)](https://github.com/alexmachulsky/golden-circle/actions/workflows/ci.yml)
 
-## What the app does
+Turn a rough business idea into a structured **WHY / HOW / WHAT** strategy using Simon Sinek's Golden Circle framework — powered by AI, streamed in real time, and rendered as an interactive visualization.
 
-- Accepts a business idea in freeform text (50–2000 characters)
-- Generates:
-  - 1 WHY statement
-  - 4 HOW items
-  - 3 WHAT items
-  - 1 positioning note
-- Streams the analysis instead of waiting for a single blocking response
-- Shows an animated loading state while the model is working
-- Lets users explore the result through clickable WHY / HOW / WHAT rings
-- Includes a built-in light / dark theme toggle persisted via cookie
-- Supports example prompts, copy-to-clipboard, and print / save-as-PDF actions
+## Features
+
+- **AI-powered analysis** — streams a structured breakdown (1 WHY, 4 HOWs, 3 WHATs, 1 positioning note) from Groq's `llama-3.3-70b-versatile`
+- **Interactive SVG visualization** — clickable concentric rings highlight each layer of the strategy
+- **Animated loading state** — Framer Motion entrance animations while the model is working
+- **Light / dark theme** — toggle persisted via cookie, applied before first paint to avoid flash
+- **Copy, print, and save-as-PDF** — export the result without leaving the page
+- **Example prompts** — pre-filled business ideas to try instantly
+- **Input validation** — 50–2000 character range enforced on client and server
 
 ## Stack
 
@@ -57,11 +55,13 @@ Open [http://localhost:7001](http://localhost:7001).
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | Starts the Next.js dev server on port `7001` |
-| `npm run build` | Creates a production build |
-| `npm run start` | Serves the production build on port `7001` |
-| `npm run lint` | Runs ESLint |
-| `npx tsc --noEmit` | Type-checks the project (same check as CI) |
+| `npm run dev` | Start the Next.js dev server on port `7001` |
+| `npm run build` | Create a production build |
+| `npm run start` | Serve the production build on port `7001` |
+| `npm run lint` | Run ESLint |
+| `npx tsc --noEmit` | Type-check the project (same check as CI) |
+| `npm test` | Run Vitest unit tests (single run, no watch) |
+| `npm run test:watch` | Run Vitest in watch mode |
 
 ## Environment variables
 
@@ -89,21 +89,37 @@ mkdir -p secrets
 docker compose up --build
 ```
 
-The compose file now binds the app to `127.0.0.1:7001` and expects sensitive values to be mounted as Docker secrets under `/run/secrets/*`. `.dockerignore` still excludes local env files from the build context so secrets are never baked into the image.
+The compose file binds the app to `127.0.0.1:7001` and expects sensitive values to be mounted as Docker secrets under `/run/secrets/*`. `.dockerignore` excludes local env files from the build context so secrets are never baked into the image.
 
-You can also pull the pre-built image published to GitHub Container Registry on every merge to `main`.
-Use an immutable tag or digest for production deployments:
+Pre-built images are published to GitHub Container Registry on every merge to `main`. Use an immutable tag for production deployments:
 
 ```bash
-docker pull ghcr.io/<owner>/golden-circle:<git-sha>
+docker pull ghcr.io/alexmachulsky/golden-circle:<git-sha>
 ```
+
+### Kubernetes
+
+Basic manifests for running on Minikube or EKS live in [`k8s/`](k8s/):
+
+```
+k8s/
+  namespace.yaml
+  configmap.yaml
+  deployment.yaml
+  service.yaml
+```
+
+Apply them with `kubectl apply -f k8s/` after creating the namespace and any required secrets.
 
 ## CI/CD
 
-GitHub Actions runs on every push and pull request to `main`:
+GitHub Actions runs on every push and pull request to `main`. The pipeline has five stages:
 
-1. **Lint, Type-check & Build** — runs `npm run lint`, `npx tsc --noEmit`, and `npm run build`.
-2. **Docker Build & Publish** — builds the Docker image (all branches) and pushes it to GHCR (merges to `main` only), tagged with the commit SHA for immutable deployments.
+1. **Build** — compile source, produce Next.js artifacts
+2. **Test** — unit tests via Vitest + React Testing Library
+3. **Analyze** — lint, type-check, dependency audit
+4. **Package** — Docker image build + Trivy vulnerability scan (results uploaded as SARIF)
+5. **Publish** — push the image to GHCR (merges to `main` only, tagged with the commit SHA)
 
 ## How it works
 
@@ -129,10 +145,10 @@ GitHub Actions runs on every push and pull request to `main`:
 | `lib/theme.ts` | Theme helpers: bootstrap script, cookie persistence, store subscription |
 | `types/index.ts` | Shared response schema used across the app |
 
-## Development notes
+## Contributing
 
-- The app is a single-page experience with one API route: `POST /api/analyze`.
-- The API response is streamed as `text/plain`, not as incremental JSON. Errors are signaled via the `__ERROR__` prefix in the stream, not HTTP status codes.
-- Tailwind uses the v4 CSS-first setup; custom theme tokens live in `app/globals.css`, not in a `tailwind.config.*` file.
-- All files in `components/` are client components; `app/page.tsx` and `app/layout.tsx` are the only Server Components.
-- There is currently no automated test suite. Before opening a PR, run `npm run lint`, `npx tsc --noEmit`, and `npm run build`.
+Before opening a PR, run the full check suite:
+
+```bash
+npm run lint && npx tsc --noEmit && npm test && npm run build
+```
