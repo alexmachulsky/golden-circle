@@ -34,6 +34,10 @@ function setNodeEnv(value: string): void {
   (process.env as Record<string, string | undefined>)["NODE_ENV"] = value;
 }
 
+function setDeploymentMode(value: string | undefined): void {
+  (process.env as Record<string, string | undefined>)["DEPLOYMENT_MODE"] = value;
+}
+
 // Helper: build a Request for the analyze endpoint
 function makeReq(options: {
   body?: unknown;
@@ -115,6 +119,7 @@ beforeEach(() => {
   _resetStoreForTesting();
   process.env.GROQ_API_KEY = "test-key";
   setNodeEnv("test");
+  setDeploymentMode(undefined);
   delete process.env.TEST_TRUSTED_IP_HEADER;
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -138,6 +143,7 @@ afterEach(() => {
   delete process.env.TURNSTILE_SECRET_KEY;
   delete process.env.TURNSTILE_SECRET_KEY_FILE;
   setNodeEnv("test");
+  setDeploymentMode(undefined);
   global.fetch = originalFetch;
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -217,6 +223,7 @@ describe("Rate limit guard", () => {
 
   it("returns 503 in production when Redis is not configured", async () => {
     setNodeEnv("production");
+    setDeploymentMode("public");
 
     const res = await POST(makeReq({}));
     expect(res.status).toBe(503);
@@ -403,6 +410,21 @@ describe("Challenge verification", () => {
 });
 
 describe("Happy path", () => {
+  it("allows a local single-container deployment in production mode", async () => {
+    setNodeEnv("production");
+    setDeploymentMode("local");
+
+    mockCreate.mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: { content: "{}" } }] };
+      })(),
+    );
+
+    const res = await POST(makeReq({}));
+    expect(res.status).toBe(200);
+    await expect(collectStream(res)).resolves.toBe("{}");
+  });
+
   it("streams the model response text", async () => {
     const chunks = ['{"why":', '{"statement":"Test"}}'];
     mockCreate.mockResolvedValue(

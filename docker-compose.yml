@@ -22,9 +22,11 @@ services:
           cpus: "0.25"
     environment:
       NODE_ENV: production
+      DEPLOYMENT_MODE: local
       ALLOWED_ORIGINS: "http://localhost:7001,http://192.168.18.241:7001"
       # No reverse proxy in front of the app, so TRUSTED_IP_HEADER is unset.
-      # Rate limiting falls back to a shared in-process bucket.
+      # DEPLOYMENT_MODE=local allows the single-container app to use the
+      # in-process rate limiter instead of the shared Upstash backend.
       # Secrets are injected via Docker secrets (_FILE vars below).
       # Do NOT set GROQ_API_KEY, UPSTASH_REDIS_REST_TOKEN, or TURNSTILE_SECRET_KEY
       # here because explicit "environment" entries override env_file values,

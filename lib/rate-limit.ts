@@ -5,8 +5,10 @@ import { readRuntimeValue } from "@/lib/runtime-env"
  *
  * - Production uses Upstash Redis REST transactions so counters are shared
  *   across replicas and survive process restarts.
- * - Production fails closed unless both the shared backend and the trusted
- *   client-identity header are configured.
+ * - Public production deployments fail closed unless both the shared backend
+ *   and the trusted client-identity header are configured.
+ * - Local single-container production deployments can opt into the in-memory
+ *   limiter by setting DEPLOYMENT_MODE=local.
  * - Non-production falls back to an in-memory Map for local development and
  *   tests where a shared backend is unnecessary.
  */
@@ -61,6 +63,10 @@ if (typeof setInterval !== "undefined") {
 
 function isProduction(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NODE_ENV === "production";
+}
+
+function isLocalProductionDeployment(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isProduction(env) && env.DEPLOYMENT_MODE?.trim().toLowerCase() === "local";
 }
 
 // Matches a bare IPv4 address or a bracketed/bare IPv6 address, optionally with
@@ -213,7 +219,7 @@ export async function checkRateLimit(
     return count <= limit;
   }
 
-  if (isProduction()) {
+  if (isProduction() && !isLocalProductionDeployment()) {
     throw new RateLimitError("Shared rate-limit backend is required in production.");
   }
 
@@ -230,6 +236,10 @@ export async function checkRateLimit(
  * can run without a proxy during development and tests.
  */
 export function getClientKey(req: Request, trustedIpHeader: string | null = null): string {
+  if (isProduction() && !isLocalProductionDeployment() && !trustedIpHeader) {
+    throw new RateLimitError("Trusted client identity is required in public production deployments.");
+  }
+
   const trustedValue = normalizeClientKey(
     trustedIpHeader ? req.headers.get(trustedIpHeader) : null,
   );

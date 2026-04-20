@@ -11,6 +11,10 @@ function setNodeEnv(value: string): void {
   (process.env as Record<string, string | undefined>)["NODE_ENV"] = value;
 }
 
+function setDeploymentMode(value: string | undefined): void {
+  (process.env as Record<string, string | undefined>)["DEPLOYMENT_MODE"] = value;
+}
+
 function createSecretFile(name: string, value: string): string {
   const dir = mkdtempSync(join(tmpdir(), "golden-circle-rate-limit-"));
   writeFileSync(join(dir, name), value, "utf8");
@@ -23,6 +27,7 @@ describe('checkRateLimit', () => {
   let tempDir: string | null;
   beforeEach(() => {
     setNodeEnv("test");
+    setDeploymentMode(undefined);
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
     delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
@@ -36,6 +41,7 @@ describe('checkRateLimit', () => {
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
     delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
     setNodeEnv("test");
+    setDeploymentMode(undefined);
     global.fetch = originalFetch;
     _resetStoreForTesting();
     if (tempDir) {
@@ -82,10 +88,20 @@ describe('checkRateLimit', () => {
 
   it("fails closed in production when Redis is not configured", async () => {
     setNodeEnv("production");
+    setDeploymentMode("public");
 
     await expect(checkRateLimit("test-production", { limit: 1, windowMs: 60_000 })).rejects.toThrow(
       RateLimitError,
     );
+  });
+
+  it("allows local production deployments to use the in-memory limiter when Redis is not configured", async () => {
+    setNodeEnv("production");
+    setDeploymentMode("local");
+
+    await expect(checkRateLimit("test-local-production", { limit: 2, windowMs: 60_000 })).resolves.toBe(true);
+    await expect(checkRateLimit("test-local-production", { limit: 2, windowMs: 60_000 })).resolves.toBe(true);
+    await expect(checkRateLimit("test-local-production", { limit: 2, windowMs: 60_000 })).resolves.toBe(false);
   });
 
   it("uses the Upstash transaction API when production Redis credentials are configured", async () => {
@@ -166,10 +182,12 @@ describe("getClientKey", () => {
 
   beforeEach(() => {
     setNodeEnv("test");
+    setDeploymentMode(undefined);
   });
 
   afterEach(() => {
     setNodeEnv("test");
+    setDeploymentMode(undefined);
   });
 
   it("uses the trusted header when TRUSTED_IP_HEADER is configured", () => {
@@ -201,8 +219,16 @@ describe("getClientKey", () => {
 
   it("falls back to shared local bucket in production when no trusted header is configured", () => {
     setNodeEnv("production");
+    setDeploymentMode("local");
     const req = makeReq({});
     expect(getClientKey(req, null)).toBe("__local__");
+  });
+
+  it("fails closed in public production when no trusted header is configured", () => {
+    setNodeEnv("production");
+    setDeploymentMode("public");
+    const req = makeReq({});
+    expect(() => getClientKey(req, null)).toThrow(RateLimitError);
   });
 
   it("fails closed in production when the trusted header is absent on the request", () => {
