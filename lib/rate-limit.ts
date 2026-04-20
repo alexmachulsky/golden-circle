@@ -1,3 +1,4 @@
+import { isIP } from "node:net"
 import { readRuntimeValue } from "@/lib/runtime-env"
 
 /**
@@ -63,21 +64,30 @@ function isProduction(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NODE_ENV === "production";
 }
 
-// Matches a bare IPv4 address or a bracketed/bare IPv6 address, optionally with
-// a port suffix — enough to reject obviously spoofed or malformed header values.
-const VALID_IP_RE =
-  /^(?:\[[\da-fA-F:]+\]|[\da-fA-F:]+|(?:\d{1,3}\.){3}\d{1,3})(?::\d+)?$/;
+function isPublicDeployment(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.DEPLOYMENT_MODE === "public";
+}
+
+function isSupportedTrustedIpHeader(headerName: string | null): boolean {
+  return headerName === "x-client-ip";
+}
 
 function normalizeClientKey(rawValue: string | null): string {
   if (!rawValue) {
     return "";
   }
 
-  // x-forwarded-for is a comma-separated list: "client, proxy1, proxy2".
-  // We use the rightmost value (added by our ingress controller, not the client)
-  // so it cannot be spoofed by injecting extra entries at the front.
-  const candidate = rawValue.split(",").at(-1)?.trim() ?? "";
-  return VALID_IP_RE.test(candidate) ? candidate : "";
+  const candidate = rawValue.trim();
+  if (!candidate || candidate.includes(",")) {
+    return "";
+  }
+
+  const normalized =
+    candidate.startsWith("[") && candidate.endsWith("]")
+      ? candidate.slice(1, -1)
+      : candidate;
+
+  return isIP(normalized) ? normalized : "";
 }
 
 function getUpstashConfig(
@@ -213,7 +223,7 @@ export async function checkRateLimit(
     return count <= limit;
   }
 
-  if (isProduction()) {
+  if (isPublicDeployment() || (isProduction() && process.env.DEPLOYMENT_MODE === "public")) {
     throw new RateLimitError("Shared rate-limit backend is required in production.");
   }
 
@@ -230,6 +240,12 @@ export async function checkRateLimit(
  * can run without a proxy during development and tests.
  */
 export function getClientKey(req: Request, trustedIpHeader: string | null = null): string {
+  if (isPublicDeployment()) {
+    if (!isSupportedTrustedIpHeader(trustedIpHeader)) {
+      throw new RateLimitError("A dedicated x-client-ip header is required in public deployments.");
+    }
+  }
+
   const trustedValue = normalizeClientKey(
     trustedIpHeader ? req.headers.get(trustedIpHeader) : null,
   );
@@ -238,7 +254,7 @@ export function getClientKey(req: Request, trustedIpHeader: string | null = null
     return trustedValue;
   }
 
-  if (isProduction() && trustedIpHeader) {
+  if (trustedIpHeader) {
     // Header name is configured but absent or invalid — fail closed so requests
     // that bypass the reverse proxy are rejected.
     throw new RateLimitError(

@@ -1,6 +1,11 @@
 import Groq from "groq-sdk";
 import { SYSTEM_PROMPT, buildUserPrompt } from "@/lib/prompt";
-import { ALLOWED_ORIGINS, RATE_LIMIT_PER_MIN, TRUSTED_IP_HEADER } from "@/lib/config";
+import {
+  ALLOWED_ORIGINS,
+  EXPECTED_TURNSTILE_HOSTNAMES,
+  RATE_LIMIT_PER_MIN,
+  TRUSTED_IP_HEADER,
+} from "@/lib/config";
 import {
   HttpError,
   assertAllowedOrigin,
@@ -130,6 +135,8 @@ export async function POST(req: Request) {
     await verifyTurnstileToken({
       token: rawBody.turnstileToken,
       remoteIp: clientKey === "__local__" ? null : clientKey,
+      expectedAction: "analyze",
+      expectedHostnames: EXPECTED_TURNSTILE_HOSTNAMES,
     });
   } catch (err) {
     if (err instanceof TurnstileError) {

@@ -1,5 +1,7 @@
 import type { AnalysisResult, HowItem, WhatItem } from '@/types';
 
+const INVISIBLE_TEXT_RE = /[\x00-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+
 /**
  * Parses and strictly validates a raw LLM response string into AnalysisResult.
  *
@@ -84,11 +86,16 @@ function stripTrailingCommas(value: string): string {
   return result;
 }
 
+function sanitizeModelText(value: string): string {
+  return value.replace(INVISIBLE_TEXT_RE, "").trim();
+}
+
 function isNonEmptyString(v: unknown, maxLen?: number): v is string {
+  const normalized = typeof v === "string" ? sanitizeModelText(v) : "";
   return (
     typeof v === 'string' &&
-    v.trim().length > 0 &&
-    (maxLen === undefined || v.length <= maxLen)
+    normalized.length > 0 &&
+    (maxLen === undefined || normalized.length <= maxLen)
   );
 }
 
@@ -104,7 +111,11 @@ function validateHowItem(item: unknown, index: number): HowItem {
   ) {
     throw new Error(`Invalid analysis response: how[${index}] missing fields`);
   }
-  return { title: obj.title, description: obj.description, uniqueness: obj.uniqueness };
+  return {
+    title: sanitizeModelText(obj.title),
+    description: sanitizeModelText(obj.description),
+    uniqueness: sanitizeModelText(obj.uniqueness),
+  };
 }
 
 function validateWhatItem(item: unknown, index: number): WhatItem {
@@ -119,7 +130,11 @@ function validateWhatItem(item: unknown, index: number): WhatItem {
   ) {
     throw new Error(`Invalid analysis response: what[${index}] missing fields`);
   }
-  return { title: obj.title, description: obj.description, why_connection: obj.why_connection };
+  return {
+    title: sanitizeModelText(obj.title),
+    description: sanitizeModelText(obj.description),
+    why_connection: sanitizeModelText(obj.why_connection),
+  };
 }
 
 function validateShape(data: unknown): AnalysisResult {
@@ -162,9 +177,12 @@ function validateShape(data: unknown): AnalysisResult {
   }
 
   return {
-    why: { statement: why.statement, depth_note: why.depth_note },
+    why: {
+      statement: sanitizeModelText(why.statement),
+      depth_note: sanitizeModelText(why.depth_note),
+    },
     how,
     what,
-    positioning_note: obj.positioning_note,
+    positioning_note: sanitizeModelText(obj.positioning_note),
   };
 }

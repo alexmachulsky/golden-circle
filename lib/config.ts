@@ -3,6 +3,14 @@
  * All values have safe development defaults.
  */
 
+export type DeploymentMode = "local" | "public";
+
+export function getDeploymentMode(env: NodeJS.ProcessEnv = process.env): DeploymentMode {
+  return env.DEPLOYMENT_MODE?.trim().toLowerCase() === "public" ? "public" : "local";
+}
+
+export const DEPLOYMENT_MODE: DeploymentMode = getDeploymentMode();
+
 const raw = process.env.ALLOWED_ORIGINS ?? 'http://localhost:7001';
 
 export const ALLOWED_ORIGINS: string[] = raw
@@ -18,6 +26,12 @@ export const ALLOWED_ORIGINS: string[] = raw
       return false;
     }
   });
+
+export const EXPECTED_TURNSTILE_HOSTNAMES: string[] = Array.from(
+  new Set(
+    ALLOWED_ORIGINS.map((origin) => new URL(origin).hostname.toLowerCase()),
+  ),
+);
 
 const rawLimit = process.env.RATE_LIMIT_PER_MIN;
 const parsedLimit = rawLimit ? parseInt(rawLimit, 10) : NaN;
@@ -37,4 +51,8 @@ export const RATE_LIMIT_PER_MIN: number = (!isNaN(parsedLimit) && parsedLimit > 
  * The reverse proxy MUST strip inbound copies of this header from untrusted
  * clients before appending its own so the value cannot be spoofed.
  */
-export const TRUSTED_IP_HEADER: string | null = process.env.TRUSTED_IP_HEADER ?? null;
+export function getTrustedIpHeader(env: NodeJS.ProcessEnv = process.env): string | null {
+  return env.TRUSTED_IP_HEADER?.trim().toLowerCase() ?? null;
+}
+
+export const TRUSTED_IP_HEADER: string | null = getTrustedIpHeader();

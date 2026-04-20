@@ -20,6 +20,7 @@ function createSecretFile(name: string, value: string): string {
 
 beforeEach(() => {
   setNodeEnv("test");
+  delete process.env.DEPLOYMENT_MODE;
   delete process.env.GROQ_API_KEY;
   delete process.env.GROQ_API_KEY_FILE;
   delete process.env.TRUSTED_IP_HEADER;
@@ -38,14 +39,15 @@ afterEach(() => {
 });
 
 describe("/api/health", () => {
-  it("returns 200 degraded when Redis and proxy are not configured (optional services)", async () => {
+  it("returns 200 ok for a local single-container deployment with only Groq configured", async () => {
     setNodeEnv("production");
+    process.env.DEPLOYMENT_MODE = "local";
     process.env.GROQ_API_KEY = "groq-key";
 
     const res = await GET();
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ status: "degraded" });
+    await expect(res.json()).resolves.toEqual({ status: "ok" });
   });
 
   it("returns 503 when Groq is not configured", async () => {
@@ -54,8 +56,20 @@ describe("/api/health", () => {
     expect(res.status).toBe(503);
   });
 
+  it("returns 503 degraded for public deployments missing abuse protections", async () => {
+    setNodeEnv("production");
+    process.env.DEPLOYMENT_MODE = "public";
+    process.env.GROQ_API_KEY = "groq-key";
+
+    const res = await GET();
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ status: "degraded" });
+  });
+
   it("accepts file-backed GROQ and Turnstile site key configuration", async () => {
     setNodeEnv("production");
+    process.env.DEPLOYMENT_MODE = "public";
     delete process.env.GROQ_API_KEY;
     process.env.GROQ_API_KEY_FILE = createSecretFile("groq-key.txt", "file-groq-key");
     process.env.TRUSTED_IP_HEADER = "x-client-ip";

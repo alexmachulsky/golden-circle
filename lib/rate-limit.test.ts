@@ -11,6 +11,14 @@ function setNodeEnv(value: string): void {
   (process.env as Record<string, string | undefined>)["NODE_ENV"] = value;
 }
 
+function setDeploymentMode(value: "local" | "public" | null): void {
+  if (value) {
+    process.env.DEPLOYMENT_MODE = value;
+    return;
+  }
+  delete process.env.DEPLOYMENT_MODE;
+}
+
 function createSecretFile(name: string, value: string): string {
   const dir = mkdtempSync(join(tmpdir(), "golden-circle-rate-limit-"));
   writeFileSync(join(dir, name), value, "utf8");
@@ -23,6 +31,7 @@ describe('checkRateLimit', () => {
   let tempDir: string | null;
   beforeEach(() => {
     setNodeEnv("test");
+    setDeploymentMode(null);
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
     delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
@@ -35,6 +44,7 @@ describe('checkRateLimit', () => {
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
     delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
+    setDeploymentMode(null);
     setNodeEnv("test");
     global.fetch = originalFetch;
     _resetStoreForTesting();
@@ -82,10 +92,18 @@ describe('checkRateLimit', () => {
 
   it("fails closed in production when Redis is not configured", async () => {
     setNodeEnv("production");
+    setDeploymentMode("public");
 
     await expect(checkRateLimit("test-production", { limit: 1, windowMs: 60_000 })).rejects.toThrow(
       RateLimitError,
     );
+  });
+
+  it("allows local production mode to fall back to the in-memory limiter", async () => {
+    setNodeEnv("production");
+    setDeploymentMode("local");
+
+    await expect(checkRateLimit("test-production-local", { limit: 2, windowMs: 60_000 })).resolves.toBe(true);
   });
 
   it("uses the Upstash transaction API when production Redis credentials are configured", async () => {
@@ -166,9 +184,11 @@ describe("getClientKey", () => {
 
   beforeEach(() => {
     setNodeEnv("test");
+    setDeploymentMode(null);
   });
 
   afterEach(() => {
+    setDeploymentMode(null);
     setNodeEnv("test");
   });
 
@@ -177,9 +197,9 @@ describe("getClientKey", () => {
     expect(getClientKey(req, "x-client-ip")).toBe("1.2.3.4");
   });
 
-  it("uses the rightmost IP from comma-delimited trusted header (proxy-injected)", () => {
+  it("rejects comma-delimited trusted header values", () => {
     const req = makeReq({ "x-client-ip": "1.2.3.4, 5.6.7.8" });
-    expect(getClientKey(req, "x-client-ip")).toBe("5.6.7.8");
+    expect(() => getClientKey(req, "x-client-ip")).toThrow(RateLimitError);
   });
 
   it("rejects a malformed trusted header value in production (fail-closed)", () => {
@@ -199,15 +219,31 @@ describe("getClientKey", () => {
     expect(getClientKey(req, null)).toBe("__local__");
   });
 
-  it("falls back to shared local bucket in production when no trusted header is configured", () => {
+  it("fails closed in public mode when no trusted header is configured", () => {
     setNodeEnv("production");
+    setDeploymentMode("public");
     const req = makeReq({});
-    expect(getClientKey(req, null)).toBe("__local__");
+    expect(() => getClientKey(req, null)).toThrow(RateLimitError);
+  });
+
+  it("fails closed in public mode when x-forwarded-for is configured as the trusted header", () => {
+    setNodeEnv("production");
+    setDeploymentMode("public");
+    const req = makeReq({ "x-forwarded-for": "203.0.113.10" });
+    expect(() => getClientKey(req, "x-forwarded-for")).toThrow(RateLimitError);
   });
 
   it("fails closed in production when the trusted header is absent on the request", () => {
     setNodeEnv("production");
+    setDeploymentMode("public");
     const req = makeReq({});
     expect(() => getClientKey(req, "x-client-ip")).toThrow(RateLimitError);
+  });
+
+  it("keeps the shared local bucket fallback outside public mode even in production", () => {
+    setNodeEnv("production");
+    setDeploymentMode("local");
+    const req = makeReq({});
+    expect(getClientKey(req, null)).toBe("__local__");
   });
 });

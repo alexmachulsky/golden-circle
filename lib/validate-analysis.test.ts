@@ -64,6 +64,17 @@ describe('parseAnalysis — happy path', () => {
 
     expect(result.positioning_note).toBe('Keep the literal sequences ,} and ,] exactly as written.');
   });
+
+  it('strips bidi and invisible control characters from model output', () => {
+    const obj = JSON.parse(makeValidJson());
+    obj.why.statement = 'We believe \u202Eclarity\u2066 matters.';
+    obj.positioning_note = 'Inside\u200Bout communication gives advantage.';
+
+    const result = parseAnalysis(JSON.stringify(obj));
+
+    expect(result.why.statement).toBe('We believe clarity matters.');
+    expect(result.positioning_note).toBe('Insideout communication gives advantage.');
+  });
 });
 
 describe('parseAnalysis — wrong item counts', () => {

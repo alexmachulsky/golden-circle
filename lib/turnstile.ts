@@ -5,6 +5,8 @@ const VERIFY_TIMEOUT_MS = 5_000
 
 interface TurnstileResponse {
   success?: boolean
+  hostname?: string
+  action?: string
 }
 
 export class TurnstileError extends Error {
@@ -33,6 +35,9 @@ function getTurnstileConfig(
   const secretKey = getTurnstileSecretKey(env)
 
   if (!siteKey && !secretKey) {
+    if (env.DEPLOYMENT_MODE === "public") {
+      throw new TurnstileError(503, "Service unavailable.", "Turnstile is required in public deployments.")
+    }
     return null
   }
 
@@ -46,9 +51,11 @@ function getTurnstileConfig(
 export async function verifyTurnstileToken(options: {
   token: unknown
   remoteIp?: string | null
+  expectedAction?: string
+  expectedHostnames?: string[]
   env?: NodeJS.ProcessEnv
 }): Promise<void> {
-  const { token, remoteIp, env = process.env } = options
+  const { token, remoteIp, expectedAction, expectedHostnames, env = process.env } = options
   const config = getTurnstileConfig(env)
 
   if (!config) {
@@ -99,5 +106,17 @@ export async function verifyTurnstileToken(options: {
 
   if (!payload.success) {
     throw new TurnstileError(403, "Verification failed.", "Turnstile rejected the submitted token.")
+  }
+
+  if (expectedAction && payload.action !== expectedAction) {
+    throw new TurnstileError(403, "Verification failed.", "Turnstile returned an unexpected action.")
+  }
+
+  if (expectedHostnames?.length) {
+    const hostname = payload.hostname?.toLowerCase()
+    const allowed = expectedHostnames.map((value) => value.toLowerCase())
+    if (!hostname || !allowed.includes(hostname)) {
+      throw new TurnstileError(403, "Verification failed.", "Turnstile returned an unexpected hostname.")
+    }
   }
 }
