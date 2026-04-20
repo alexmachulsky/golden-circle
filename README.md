@@ -16,7 +16,7 @@ Turn a rough business idea into a structured **WHY / HOW / WHAT** strategy using
 
 ## Stack
 
-- Next.js 16.2.3
+- Next.js 16.2.4
 - React 19.2.4
 - TypeScript
 - Tailwind CSS v4
@@ -68,28 +68,28 @@ Open [http://localhost:7001](http://localhost:7001).
 | Name | Required | Description |
 | --- | --- | --- |
 | `GROQ_API_KEY` | Yes | API key used by `app/api/analyze/route.ts` to call Groq |
-| `TURNSTILE_SITE_KEY` | Production | Public site key used to render the verification challenge |
-| `TURNSTILE_SECRET_KEY` | Production | Secret key used server-side to verify submitted challenge tokens |
-| `UPSTASH_REDIS_REST_URL` | Production | Shared rate-limit backend URL |
-| `UPSTASH_REDIS_REST_TOKEN` | Production | Shared rate-limit backend token |
-| `TRUSTED_IP_HEADER` | Production | Trusted proxy-injected client IP header |
+| `DEPLOYMENT_MODE` | No | `local` for the single-container runtime, `public` for internet-facing deployments behind a trusted proxy |
+| `TURNSTILE_SITE_KEY` | Public mode | Public site key used to render the verification challenge |
+| `TURNSTILE_SECRET_KEY` | Public mode | Secret key used server-side to verify submitted challenge tokens |
+| `UPSTASH_REDIS_REST_URL` | Public mode | Shared rate-limit backend URL |
+| `UPSTASH_REDIS_REST_TOKEN` | Public mode | Shared rate-limit backend token |
+| `TRUSTED_IP_HEADER` | Public mode | Must be `x-client-ip`, injected by the final trusted proxy |
 
 ## Docker
 
 Run with Docker Compose:
 
 ```bash
-cp .env.local.example .env.local
-# fill in only the non-secret settings in .env.local
 mkdir -p secrets
-# put the sensitive runtime values into:
+# put your Groq key into:
 #   secrets/groq_api_key.txt
-#   secrets/upstash_redis_rest_token.txt
-#   secrets/turnstile_secret_key.txt
-docker compose up --build
+cp .env.compose.example .env.compose.local
+docker compose --env-file .env.compose.local up --build
 ```
 
-The compose stack now fronts the app with the bundled `nginx.conf`, publishes only `127.0.0.1:7001`, and sets `TRUSTED_IP_HEADER=x-real-ip` so production rate limiting can trust the proxy-injected client IP. It expects `UPSTASH_REDIS_REST_URL`, `TURNSTILE_SITE_KEY`, and the Docker-secret-backed values under `/run/secrets/*` to be configured before `/api/analyze` will serve traffic. `.dockerignore` excludes local env files from the build context so secrets are never baked into the image.
+The checked-in Compose setup is intentionally local-only and runs exactly one application container. It binds to `127.0.0.1:7001`, uses `DEPLOYMENT_MODE=local`, keeps rate limiting in-process, and does not require Upstash, Turnstile, or an internal nginx sidecar. `.dockerignore` excludes local env files from the build context so secrets are never baked into the image.
+
+For AWS/EKS, switch to `DEPLOYMENT_MODE=public` only after the app sits behind ALB plus an ingress/reverse-proxy layer that strips inbound copies of `x-client-ip` and rewrites a single trusted client IP header.
 
 Pre-built images are published to GitHub Container Registry on every merge to `main`. Use an immutable tag for production deployments:
 
@@ -124,7 +124,7 @@ GitHub Actions runs on every push and pull request to `main`. The pipeline has f
 ## How it works
 
 1. `components/InputForm.tsx` collects the business idea, shows example prompts, and enforces the 50–2000 character range.
-2. `app/api/analyze/route.ts` sanitizes input, enforces production abuse-protection prerequisites (`TRUSTED_IP_HEADER`, Upstash, Turnstile), checks for `GROQ_API_KEY`, and streams raw text from Groq back to the browser.
+2. `app/api/analyze/route.ts` sanitizes input, enforces public-mode abuse protections (`x-client-ip`, Upstash, Turnstile), checks for `GROQ_API_KEY`, and streams raw text from Groq back to the browser.
 3. `components/GoldenCircleApp.tsx` reads the stream, handles the `__ERROR__` sentinel used for stream-time failures, cleans up common LLM JSON formatting mistakes, and parses the final response into the shared `AnalysisResult` type.
 4. `components/ResultSection.tsx` renders the final strategy breakdown and coordinates the interactive circle UI from `components/GoldenCircle.tsx`.
 

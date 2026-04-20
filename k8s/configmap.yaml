@@ -7,14 +7,14 @@ metadata:
     app.kubernetes.io/name: golden-circle
 data:
   NODE_ENV: "production"
+  DEPLOYMENT_MODE: "public"
   NEXT_TELEMETRY_DISABLED: "1"
   PORT: "7001"
   HOSTNAME: "0.0.0.0"
-  # For the Minikube POC we access via kubectl port-forward on localhost:7001.
-  # For EKS: replace with your ALB/ingress URL, e.g. https://golden-circle.example.com
-  # Minikube POC: port-forward maps to :7002. EKS: set to your ALB/ingress URL.
-  ALLOWED_ORIGINS: "http://localhost:7001,http://localhost:7002,http://192.168.18.241:7002"
-  TRUSTED_IP_HEADER: "x-forwarded-for"
+  # Replace with your public origin once the ALB + ingress/nginx layer is in place.
+  ALLOWED_ORIGINS: "https://golden-circle.example.com"
+  # The ingress layer must strip inbound copies and rewrite a single x-client-ip value.
+  TRUSTED_IP_HEADER: "x-client-ip"
   TURNSTILE_SITE_KEY: "replace-with-your-public-site-key"
   UPSTASH_REDIS_REST_URL: "https://replace-with-your-upstash-url"
   RATE_LIMIT_PER_MIN: "20"

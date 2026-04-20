@@ -1,10 +1,12 @@
+import { getDeploymentMode, getTrustedIpHeader } from "@/lib/config";
 import { readRuntimeValue } from "@/lib/runtime-env";
 import { getTurnstileSiteKey } from "@/lib/turnstile";
 
 export async function GET() {
+  const isPublicDeployment = getDeploymentMode() === "public";
   let groqConfigured = false;
-  let rateLimitConfigured = true;
-  let trustedProxyConfigured = true;
+  let rateLimitConfigured = !isPublicDeployment;
+  let trustedProxyConfigured = !isPublicDeployment;
   let turnstileConfigured = true;
   let turnstileEnabled = false;
 
@@ -14,7 +16,7 @@ export async function GET() {
     // file-backed secret not accessible
   }
 
-  if (process.env.NODE_ENV === "production") {
+  if (isPublicDeployment) {
     try {
       rateLimitConfigured =
         Boolean(readRuntimeValue("UPSTASH_REDIS_REST_URL")) &&
@@ -23,7 +25,7 @@ export async function GET() {
       rateLimitConfigured = false;
     }
 
-    trustedProxyConfigured = Boolean(process.env.TRUSTED_IP_HEADER?.trim());
+    trustedProxyConfigured = getTrustedIpHeader() === "x-client-ip";
   }
 
   try {
@@ -35,7 +37,10 @@ export async function GET() {
     turnstileConfigured = false;
   }
 
-  const canServeRequests = groqConfigured && turnstileConfigured;
+  const canServeRequests =
+    groqConfigured &&
+    turnstileConfigured &&
+    (!isPublicDeployment || turnstileEnabled);
   const fullyConfigured =
     canServeRequests && rateLimitConfigured && trustedProxyConfigured;
   const status = fullyConfigured ? "ok" : "degraded";
@@ -54,10 +59,7 @@ export async function GET() {
   return Response.json(
     { status },
     {
-      // 503 only when the app cannot serve requests at all (Groq missing or
-      // Turnstile misconfigured). Degraded optional services still return 200
-      // so the Docker health check passes.
-      status: canServeRequests ? 200 : 503,
+      status: fullyConfigured ? 200 : 503,
       headers: { "Cache-Control": "no-store" },
     },
   );

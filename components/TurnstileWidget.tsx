@@ -14,6 +14,7 @@ declare global {
           callback: (token: string) => void;
           "expired-callback": () => void;
           "error-callback": () => void;
+          action?: string;
           theme?: "auto" | "light" | "dark";
         },
       ) => string;
@@ -84,6 +85,7 @@ export default function TurnstileWidget({ siteKey, onTokenChange }: TurnstileWid
         resetWidget();
         setLoadFailed(true);
       },
+      action: "analyze",
       theme: "auto",
     });
 

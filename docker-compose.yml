@@ -8,7 +8,7 @@ services:
     container_name: golden-circle
     restart: unless-stopped
     ports:
-      - "7001:7001"
+      - "127.0.0.1:7001:7001"
     read_only: true
     tmpfs:
       - /tmp:size=64M,noexec,nosuid
@@ -22,25 +22,12 @@ services:
           cpus: "0.25"
     environment:
       NODE_ENV: production
-      ALLOWED_ORIGINS: "http://localhost:7001,http://192.168.18.241:7001"
-      # No reverse proxy in front of the app, so TRUSTED_IP_HEADER is unset.
-      # Rate limiting falls back to a shared in-process bucket.
-      # Secrets are injected via Docker secrets (_FILE vars below).
-      # Do NOT set GROQ_API_KEY, UPSTASH_REDIS_REST_TOKEN, or TURNSTILE_SECRET_KEY
-      # here because explicit "environment" entries override env_file values,
-      # which would silently blank them out.
+      DEPLOYMENT_MODE: local
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-http://localhost:7001}"
+      RATE_LIMIT_PER_MIN: "${RATE_LIMIT_PER_MIN:-20}"
       GROQ_API_KEY_FILE: /run/secrets/groq_api_key
-      UPSTASH_REDIS_REST_TOKEN_FILE: /run/secrets/upstash_redis_rest_token
-      TURNSTILE_SECRET_KEY_FILE: /run/secrets/turnstile_secret_key
-    env_file:
-      # Non-secret runtime config comes from .env.local.
-      # Keep GROQ_API_KEY, UPSTASH_REDIS_REST_TOKEN, and TURNSTILE_SECRET_KEY
-      # out of this file; mount them through Docker secrets instead.
-      - .env.local
     secrets:
       - groq_api_key
-      - upstash_redis_rest_token
-      - turnstile_secret_key
     cap_drop:
       - ALL
     security_opt:
@@ -55,7 +42,3 @@ services:
 secrets:
   groq_api_key:
     file: ./secrets/groq_api_key.txt
-  upstash_redis_rest_token:
-    file: ./secrets/upstash_redis_rest_token.txt
-  turnstile_secret_key:
-    file: ./secrets/turnstile_secret_key.txt

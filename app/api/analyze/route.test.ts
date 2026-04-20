@@ -21,7 +21,11 @@ vi.mock('groq-sdk', () => {
 // ── Mock config so origin / rate-limit values are controlled ────────────────
 vi.mock('@/lib/config', () => ({
   ALLOWED_ORIGINS: ["http://localhost:7001"],
+  EXPECTED_TURNSTILE_HOSTNAMES: ["localhost"],
   RATE_LIMIT_PER_MIN: 5,
+  get DEPLOYMENT_MODE() {
+    return process.env.TEST_DEPLOYMENT_MODE ?? "local";
+  },
   get TRUSTED_IP_HEADER() {
     return process.env.TEST_TRUSTED_IP_HEADER ?? null;
   },
@@ -32,6 +36,17 @@ import { _resetStoreForTesting } from "@/lib/rate-limit";
 
 function setNodeEnv(value: string): void {
   (process.env as Record<string, string | undefined>)["NODE_ENV"] = value;
+}
+
+function setDeploymentMode(value: "local" | "public" | null): void {
+  if (value) {
+    process.env.TEST_DEPLOYMENT_MODE = value;
+    process.env.DEPLOYMENT_MODE = value;
+    return;
+  }
+
+  delete process.env.TEST_DEPLOYMENT_MODE;
+  delete process.env.DEPLOYMENT_MODE;
 }
 
 // Helper: build a Request for the analyze endpoint
@@ -67,7 +82,9 @@ function createSecretFile(name: string, value: string): string {
   return filePath;
 }
 
-function mockProductionFetch(options?: { turnstileSuccess?: boolean }) {
+function mockProductionFetch(options?: {
+  turnstilePayload?: Record<string, unknown>;
+}) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     void _init;
     const url = typeof input === "string"
@@ -85,7 +102,12 @@ function mockProductionFetch(options?: { turnstileSuccess?: boolean }) {
 
     if (url === "https://challenges.cloudflare.com/turnstile/v0/siteverify") {
       return new Response(
-        JSON.stringify({ success: options?.turnstileSuccess ?? true }),
+        JSON.stringify({
+          success: true,
+          hostname: "localhost",
+          action: "analyze",
+          ...options?.turnstilePayload,
+        }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
@@ -115,6 +137,7 @@ beforeEach(() => {
   _resetStoreForTesting();
   process.env.GROQ_API_KEY = "test-key";
   setNodeEnv("test");
+  setDeploymentMode(null);
   delete process.env.TEST_TRUSTED_IP_HEADER;
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -128,6 +151,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.GROQ_API_KEY;
+  setDeploymentMode(null);
   delete process.env.TEST_TRUSTED_IP_HEADER;
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -217,6 +241,7 @@ describe("Rate limit guard", () => {
 
   it("returns 503 in production when Redis is not configured", async () => {
     setNodeEnv("production");
+    setDeploymentMode("public");
 
     const res = await POST(makeReq({}));
     expect(res.status).toBe(503);
@@ -225,6 +250,7 @@ describe("Rate limit guard", () => {
 
   it("returns 503 in production when the trusted client identity is missing", async () => {
     setNodeEnv("production");
+    setDeploymentMode("public");
     process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
     process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
     process.env.UPSTASH_REDIS_REST_TOKEN = "secret-token";
@@ -281,6 +307,7 @@ describe("Runtime secret files", () => {
 describe("Challenge verification", () => {
   function enableProductionChallenge() {
     setNodeEnv("production");
+    setDeploymentMode("public");
     process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
     process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
     process.env.UPSTASH_REDIS_REST_TOKEN = "secret-token";
@@ -302,7 +329,7 @@ describe("Challenge verification", () => {
 
   it("returns 403 when Turnstile rejects the submitted token", async () => {
     enableProductionChallenge();
-    const fetchMock = mockProductionFetch({ turnstileSuccess: false });
+    const fetchMock = mockProductionFetch({ turnstilePayload: { success: false } });
 
     const res = await POST(makeReq({
       headers: { "x-client-ip": "203.0.113.10" },
@@ -313,6 +340,59 @@ describe("Challenge verification", () => {
     await expect(res.json()).resolves.toEqual({ error: "Verification failed." });
     expect(mockCreate).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns 403 when Turnstile returns the wrong hostname", async () => {
+    enableProductionChallenge();
+    const fetchMock = mockProductionFetch({
+      turnstilePayload: { hostname: "evil.example" },
+    });
+
+    const res = await POST(makeReq({
+      headers: { "x-client-ip": "203.0.113.10" },
+      body: { businessIdea: DEFAULT_IDEA, turnstileToken: "token-from-widget" },
+    }));
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({ error: "Verification failed." });
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns 403 when Turnstile returns the wrong action", async () => {
+    enableProductionChallenge();
+    const fetchMock = mockProductionFetch({
+      turnstilePayload: { action: "preview" },
+    });
+
+    const res = await POST(makeReq({
+      headers: { "x-client-ip": "203.0.113.10" },
+      body: { businessIdea: DEFAULT_IDEA, turnstileToken: "token-from-widget" },
+    }));
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({ error: "Verification failed." });
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns 503 in public mode when Turnstile is not configured", async () => {
+    setNodeEnv("production");
+    setDeploymentMode("public");
+    process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "secret-token";
+    const fetchMock = mockProductionFetch();
+
+    const res = await POST(makeReq({
+      headers: { "x-client-ip": "203.0.113.10" },
+      body: { businessIdea: DEFAULT_IDEA, turnstileToken: "token-from-widget" },
+    }));
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("verifies Turnstile in production before streaming the model response", async () => {
@@ -350,6 +430,7 @@ describe("Challenge verification", () => {
 
   it("accepts TURNSTILE_SECRET_KEY_FILE when Turnstile is enabled", async () => {
     setNodeEnv("production");
+    setDeploymentMode("public");
     process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
     process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
     process.env.UPSTASH_REDIS_REST_TOKEN = "secret-token";
@@ -377,6 +458,7 @@ describe("Challenge verification", () => {
 
   it("accepts TURNSTILE_SITE_KEY_FILE when Turnstile is enabled", async () => {
     setNodeEnv("production");
+    setDeploymentMode("public");
     process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
     process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
     process.env.UPSTASH_REDIS_REST_TOKEN = "secret-token";
@@ -403,6 +485,21 @@ describe("Challenge verification", () => {
 });
 
 describe("Happy path", () => {
+  it("allows a local single-container deployment in production mode", async () => {
+    setNodeEnv("production");
+    setDeploymentMode("local");
+
+    mockCreate.mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: { content: "{}" } }] };
+      })(),
+    );
+
+    const res = await POST(makeReq({}));
+    expect(res.status).toBe(200);
+    await expect(collectStream(res)).resolves.toBe("{}");
+  });
+
   it("streams the model response text", async () => {
     const chunks = ['{"why":', '{"statement":"Test"}}'];
     mockCreate.mockResolvedValue(
