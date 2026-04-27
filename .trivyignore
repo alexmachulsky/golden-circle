@@ -1,23 +1,29 @@
-# Packages vendored inside next/dist/compiled/ — these are compiled into
-# Next.js's distribution bundle and cannot be independently upgraded via npm.
-# They are only used internally by the Next.js server runtime and are not
-# directly reachable via user input. Fixes require an upstream Next.js release.
+# Packages vendored inside next/dist/compiled/ are baked into the Next.js
+# distribution bundle and cannot be upgraded independently via npm. Fixes
+# require an upstream Next.js release.
+#
+# Each suppression below is a TIME-BOUNDED exception. Format:
+#   <CVE>  expires=<YYYY-MM-DD>  owner=<github-handle>  upstream=<tracking-url>
+# CI flags entries within 14 days of expiry; review on every Next.js bump.
+#
+# Default expiry policy: re-check at the next Next.js minor release or
+# 6 months from the date of the suppression, whichever comes first.
 
 # cross-spawn (next/dist/compiled/cross-spawn)
-CVE-2024-21538
+CVE-2024-21538  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=cross-spawn
 
 # glob (next/dist/compiled/)
-CVE-2025-64756
+CVE-2025-64756  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=glob
 
 # minimatch (next/dist/compiled/)
-CVE-2026-26996
-CVE-2026-27903
-CVE-2026-27904
+CVE-2026-26996  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=minimatch
+CVE-2026-27903  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=minimatch
+CVE-2026-27904  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=minimatch
 
 # tar (next/dist/compiled/tar)
-CVE-2026-23745
-CVE-2026-23950
-CVE-2026-24842
-CVE-2026-26960
-CVE-2026-29786
-CVE-2026-31802
+CVE-2026-23745  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=tar
+CVE-2026-23950  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=tar
+CVE-2026-24842  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=tar
+CVE-2026-26960  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=tar
+CVE-2026-29786  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=tar
+CVE-2026-31802  expires=2026-10-27  owner=alexmachulsky  upstream=https://github.com/vercel/next.js/issues?q=tar

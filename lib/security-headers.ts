@@ -29,15 +29,20 @@ export function buildContentSecurityPolicy(
   const hasTurnstile = hasTurnstileConfig(env);
   const safeNonce = nonce && SAFE_NONCE_RE.test(nonce) ? nonce : undefined;
   const scriptNonce = safeNonce ? ` 'nonce-${safeNonce}'` : "";
+  const isDevelopment = env.NODE_ENV === "development";
 
   const directives = [
     "default-src 'self'",
-    `script-src 'self'${scriptNonce}${hasTurnstile ? ` ${TURNSTILE_ORIGIN}` : ""}`,
+    `script-src 'self'${scriptNonce}${isDevelopment ? " 'unsafe-eval'" : ""}${hasTurnstile ? ` ${TURNSTILE_ORIGIN}` : ""}`,
     // Nonce-based <style> elements; 'unsafe-inline' removed when nonce is active.
     safeNonce
-      ? `style-src 'self' 'nonce-${safeNonce}'`
+      ? isDevelopment
+        ? "style-src 'self' 'unsafe-inline'"
+        : `style-src 'self' 'nonce-${safeNonce}'`
       : "style-src 'self' 'unsafe-inline'",
-    // Allow inline style= attributes (Framer Motion, React style props).
+    // Accepted compatibility exception: Framer Motion writes runtime style=
+    // attributes for SVG transforms/animation. Keep script-src nonce-only so
+    // this remains a style-only CSP allowance, not a script execution bypass.
     // style-src-attr is a CSP3 directive; browsers that don't support it fall
     // back to style-src, which already has the nonce.
     ...(safeNonce ? ["style-src-attr 'unsafe-inline'"] : []),

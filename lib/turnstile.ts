@@ -1,10 +1,31 @@
 import { readRuntimeValue } from "@/lib/runtime-env"
+import { TURNSTILE_ACTION } from "@/lib/turnstile-action"
 
 const VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 const VERIFY_TIMEOUT_MS = 5_000
 
 interface TurnstileResponse {
   success?: boolean
+  hostname?: string
+  action?: string
+  "error-codes"?: string[]
+}
+
+function getAllowedHostnames(env: NodeJS.ProcessEnv): Set<string> {
+  const raw = env.ALLOWED_ORIGINS?.trim()
+  if (!raw) {
+    return new Set()
+  }
+  const hosts = new Set<string>()
+  for (const origin of raw.split(",")) {
+    try {
+      const url = new URL(origin.trim())
+      hosts.add(url.hostname)
+    } catch {
+      // ignore invalid origin entries — lib/config already warns on these
+    }
+  }
+  return hosts
 }
 
 export class TurnstileError extends Error {
@@ -43,6 +64,10 @@ function getTurnstileConfig(
   return { siteKey, secretKey }
 }
 
+function isPublicProduction(env: NodeJS.ProcessEnv): boolean {
+  return env.NODE_ENV === "production" && env.DEPLOYMENT_MODE?.trim().toLowerCase() !== "local"
+}
+
 export async function verifyTurnstileToken(options: {
   token: unknown
   remoteIp?: string | null
@@ -52,7 +77,11 @@ export async function verifyTurnstileToken(options: {
   const config = getTurnstileConfig(env)
 
   if (!config) {
-    // Turnstile is optional — if neither key is configured, skip verification.
+    if (isPublicProduction(env)) {
+      throw new TurnstileError(503, "Service unavailable.", "Turnstile is required in public production.")
+    }
+
+    // Turnstile is optional for development and explicit local deployments.
     return
   }
 
@@ -98,6 +127,27 @@ export async function verifyTurnstileToken(options: {
   }
 
   if (!payload.success) {
+    const errorCodes = payload["error-codes"] ?? []
+    console.warn("[turnstile] rejected:", errorCodes.length ? errorCodes.join(",") : "no-error-codes")
     throw new TurnstileError(403, "Verification failed.", "Turnstile rejected the submitted token.")
+  }
+
+  // Bind the token to the expected widget action — defends against a token
+  // that was issued for a different widget on the same site (replay across
+  // actions).
+  if (payload.action !== TURNSTILE_ACTION) {
+    console.warn(`[turnstile] action mismatch: got "${payload.action ?? ""}", expected "${TURNSTILE_ACTION}"`)
+    throw new TurnstileError(403, "Verification failed.", "Turnstile token issued for a different action.")
+  }
+
+  // Bind the token to a hostname we serve. The token is signed by Cloudflare,
+  // but the hostname binding makes sure a token captured from a different
+  // site that happens to use the same secret cannot be replayed here.
+  const allowedHostnames = getAllowedHostnames(env)
+  if (allowedHostnames.size > 0) {
+    if (!payload.hostname || !allowedHostnames.has(payload.hostname)) {
+      console.warn(`[turnstile] hostname mismatch: got "${payload.hostname ?? ""}", allowed ${[...allowedHostnames].join(",")}`)
+      throw new TurnstileError(403, "Verification failed.", "Turnstile token issued for a different hostname.")
+    }
   }
 }

@@ -10,6 +10,11 @@ import {
 import { RateLimitError, checkRateLimit, getClientKey } from "@/lib/rate-limit";
 import { readRuntimeValue } from "@/lib/runtime-env";
 import { TurnstileError, verifyTurnstileToken } from "@/lib/turnstile";
+import {
+  computeCacheKey,
+  getCachedAnalysis,
+  setCachedAnalysis,
+} from "@/lib/analyze-cache";
 
 import { MIN_INPUT_LENGTH, MAX_INPUT_LENGTH } from "@/lib/constants";
 
@@ -138,6 +143,19 @@ export async function POST(req: Request) {
     throw err;
   }
 
+  // ── Cache lookup: identical sanitized input within the TTL ──────────────
+  const cacheKey = computeCacheKey(sanitized);
+  let cached: string | null = null;
+  try {
+    cached = await getCachedAnalysis(cacheKey);
+  } catch (err) {
+    // Cache failures must never block the request — fall through to Groq.
+    console.warn("[analyze] cache lookup failed:", err instanceof Error ? err.message : String(err));
+  }
+  if (cached) {
+    return new Response(cached, { headers: STREAM_HEADERS });
+  }
+
   // ── Stream Groq response ────────────────────────────────────────────────
   const groq = new Groq({ apiKey });
   const encoder = new TextEncoder();
@@ -166,6 +184,7 @@ export async function POST(req: Request) {
 
         let accumulated = "";
         let checkedPrefix = false;
+        let fullResponse = "";
 
         for await (const chunk of stream) {
           const text = chunk.choices[0]?.delta?.content;
@@ -196,23 +215,38 @@ export async function POST(req: Request) {
                   return;
                 }
                 controller.enqueue(encoder.encode(accumulated));
+                fullResponse += accumulated;
                 accumulated = "";
               }
             } else {
               controller.enqueue(encoder.encode(text));
+              fullResponse += text;
             }
           }
         }
-        // Flush any buffered prefix bytes for very short responses
+        // Flush any buffered prefix bytes for very short responses. Use the
+        // same `includes` semantics as the buffered branch above so a short
+        // injected response with leading whitespace before the sentinel is
+        // still rejected.
         if (accumulated) {
-          if (accumulated.startsWith("__ERROR__")) {
+          if (accumulated.includes("__ERROR__")) {
             controller.enqueue(encoder.encode("__ERROR__Analysis failed. Please try again."));
           } else {
             controller.enqueue(encoder.encode(accumulated));
+            fullResponse += accumulated;
           }
         }
 
         controller.close();
+
+        // Cache the assembled response so the next identical request skips
+        // Groq entirely. setCachedAnalysis filters error sentinels and
+        // non-JSON payloads itself.
+        if (fullResponse) {
+          setCachedAnalysis(cacheKey, fullResponse).catch((err) => {
+            console.warn("[analyze] cache write failed:", err instanceof Error ? err.message : String(err));
+          });
+        }
       } catch (err: unknown) {
         console.error("[analyze] upstream error:", err instanceof Error ? err.message : String(err));
         const isTimeout =

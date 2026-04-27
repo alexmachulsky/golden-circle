@@ -236,4 +236,43 @@ describe("getClientKey", () => {
     const req = makeReq({});
     expect(() => getClientKey(req, "x-client-ip")).toThrow(RateLimitError);
   });
+
+  it("rejects out-of-range IPv4 octets in production (fail-closed)", () => {
+    setNodeEnv("production");
+    const req = makeReq({ "x-client-ip": "999.999.999.999" });
+    expect(() => getClientKey(req, "x-client-ip")).toThrow(RateLimitError);
+  });
+
+  it("rejects hex-only garbage that the old regex matched", () => {
+    setNodeEnv("production");
+    const req = makeReq({ "x-client-ip": "deadbeef" });
+    expect(() => getClientKey(req, "x-client-ip")).toThrow(RateLimitError);
+  });
+
+  it("rejects malformed colon strings", () => {
+    setNodeEnv("production");
+    const req = makeReq({ "x-client-ip": ":::::::::" });
+    expect(() => getClientKey(req, "x-client-ip")).toThrow(RateLimitError);
+  });
+
+  it("strips IPv4 port suffix so the limiter keys on the address only", () => {
+    const req = makeReq({ "x-client-ip": "1.2.3.4:55321" });
+    expect(getClientKey(req, "x-client-ip")).toBe("1.2.3.4");
+  });
+
+  it("strips IPv6 brackets and optional port", () => {
+    const req = makeReq({ "x-client-ip": "[2001:db8::1]:443" });
+    expect(getClientKey(req, "x-client-ip")).toBe("2001:db8::1");
+  });
+
+  it("accepts a bare IPv6 address", () => {
+    const req = makeReq({ "x-client-ip": "::1" });
+    expect(getClientKey(req, "x-client-ip")).toBe("::1");
+  });
+
+  it("rejects a hostname (only IPs are valid identities)", () => {
+    setNodeEnv("production");
+    const req = makeReq({ "x-client-ip": "evil.example.com" });
+    expect(() => getClientKey(req, "x-client-ip")).toThrow(RateLimitError);
+  });
 });

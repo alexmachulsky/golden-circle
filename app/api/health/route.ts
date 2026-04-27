@@ -2,6 +2,9 @@ import { readRuntimeValue } from "@/lib/runtime-env";
 import { getTurnstileSiteKey } from "@/lib/turnstile";
 
 export async function GET() {
+  const isPublicProduction =
+    process.env.NODE_ENV === "production" &&
+    process.env.DEPLOYMENT_MODE?.trim().toLowerCase() !== "local";
   let groqConfigured = false;
   let rateLimitConfigured = true;
   let trustedProxyConfigured = true;
@@ -14,7 +17,10 @@ export async function GET() {
     // file-backed secret not accessible
   }
 
-  if (process.env.NODE_ENV === "production") {
+  if (isPublicProduction) {
+    // Public production must use the shared Upstash limiter and a trusted
+    // client-IP header. DEPLOYMENT_MODE=local intentionally uses the
+    // in-process limiter and no proxy, so those checks are skipped there.
     try {
       rateLimitConfigured =
         Boolean(readRuntimeValue("UPSTASH_REDIS_REST_URL")) &&
@@ -35,7 +41,11 @@ export async function GET() {
     turnstileConfigured = false;
   }
 
-  const canServeRequests = groqConfigured && turnstileConfigured;
+  const turnstileRequired = isPublicProduction;
+  const canServeRequests =
+    groqConfigured &&
+    turnstileConfigured &&
+    (!turnstileRequired || turnstileEnabled);
   const fullyConfigured =
     canServeRequests && rateLimitConfigured && trustedProxyConfigured;
   const status = fullyConfigured ? "ok" : "degraded";

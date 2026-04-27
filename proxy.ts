@@ -44,6 +44,6 @@ export const config = {
      * Run on all paths except Next.js internals and static public assets.
      * This ensures every HTML page response carries a unique nonce.
      */
-    "/((?!_next/static|_next/image|favicon\\.ico|robots\\.txt).*)",
+    "/((?!_next/static|_next/image|_next/webpack-hmr|favicon\\.ico|robots\\.txt).*)",
   ],
 };

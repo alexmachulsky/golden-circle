@@ -33,10 +33,9 @@ export default async function RootLayout({
   } catch (e) {
     console.error("[layout] Failed to read Turnstile site key:", e);
   }
-  // Read the per-request nonce injected by middleware.ts so Next.js can
-  // attach it to any inline scripts/styles it generates during SSR.
-  const headersList = await headers();
-  const nonce = headersList.get("x-nonce") ?? undefined;
+  // Force dynamic rendering so Next can read the per-request CSP nonce from
+  // proxy.ts and attach it to inline framework scripts/styles during SSR.
+  await headers();
 
   return (
     <html
@@ -46,12 +45,16 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full">
-        <Script src="/theme-init.js" strategy="beforeInteractive" nonce={nonce} />
+        {/* Synchronous theme bootstrap must run before paint to avoid FOUC.
+            Using next/script with strategy="beforeInteractive" caused a CSP
+            nonce hydration mismatch under Turbopack; a plain <script> with
+            the nonce attached by proxy.ts is intentional here. */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script src="/theme-init.js" />
         {turnstileSiteKey && (
           <Script
             src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
             strategy="afterInteractive"
-            nonce={nonce}
           />
         )}
         {children}

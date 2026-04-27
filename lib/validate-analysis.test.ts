@@ -64,6 +64,24 @@ describe('parseAnalysis — happy path', () => {
 
     expect(result.positioning_note).toBe('Keep the literal sequences ,} and ,] exactly as written.');
   });
+
+  it('strips bidi and zero-width formatting characters from LLM output', () => {
+    // RTL override (U+202E), zero-width space (U+200B), and a control char.
+    const obj = JSON.parse(makeValidJson());
+    obj.positioning_note =
+      'Strate‮gic​ advantage.';
+    obj.why.statement = 'We​ believe in‏ transparency.';
+    obj.how[0] = {
+      ...obj.how[0],
+      title: 'Radical‮ Transparency',
+    };
+
+    const result = parseAnalysis(JSON.stringify(obj));
+
+    expect(result.positioning_note).toBe('Strategic advantage.');
+    expect(result.why.statement).toBe('We believe in transparency.');
+    expect(result.how[0].title).toBe('Radical Transparency');
+  });
 });
 
 describe('parseAnalysis — wrong item counts', () => {

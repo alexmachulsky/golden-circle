@@ -84,6 +84,17 @@ function stripTrailingCommas(value: string): string {
   return result;
 }
 
+// Strip ASCII control chars and Unicode bidi/zero-width formatting characters
+// from LLM output before storage. A prompt-injected response could otherwise
+// embed RTL overrides or invisible whitespace that visually distort the
+// rendered text even though React already blocks raw HTML.
+const CONTROL_AND_BIDI_RE =
+  /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F​-‏‪-‮⁠-⁩﻿]/g;
+
+function sanitizeOutputString(value: string): string {
+  return value.replace(CONTROL_AND_BIDI_RE, "");
+}
+
 function isNonEmptyString(v: unknown, maxLen?: number): v is string {
   return (
     typeof v === 'string' &&
@@ -104,7 +115,11 @@ function validateHowItem(item: unknown, index: number): HowItem {
   ) {
     throw new Error(`Invalid analysis response: how[${index}] missing fields`);
   }
-  return { title: obj.title, description: obj.description, uniqueness: obj.uniqueness };
+  return {
+    title: sanitizeOutputString(obj.title),
+    description: sanitizeOutputString(obj.description),
+    uniqueness: sanitizeOutputString(obj.uniqueness),
+  };
 }
 
 function validateWhatItem(item: unknown, index: number): WhatItem {
@@ -119,7 +134,11 @@ function validateWhatItem(item: unknown, index: number): WhatItem {
   ) {
     throw new Error(`Invalid analysis response: what[${index}] missing fields`);
   }
-  return { title: obj.title, description: obj.description, why_connection: obj.why_connection };
+  return {
+    title: sanitizeOutputString(obj.title),
+    description: sanitizeOutputString(obj.description),
+    why_connection: sanitizeOutputString(obj.why_connection),
+  };
 }
 
 function validateShape(data: unknown): AnalysisResult {
@@ -162,9 +181,12 @@ function validateShape(data: unknown): AnalysisResult {
   }
 
   return {
-    why: { statement: why.statement, depth_note: why.depth_note },
+    why: {
+      statement: sanitizeOutputString(why.statement),
+      depth_note: sanitizeOutputString(why.depth_note),
+    },
     how,
     what,
-    positioning_note: obj.positioning_note,
+    positioning_note: sanitizeOutputString(obj.positioning_note),
   };
 }

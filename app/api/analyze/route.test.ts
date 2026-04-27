@@ -88,10 +88,15 @@ function mockProductionFetch(options?: { turnstileSuccess?: boolean }) {
     }
 
     if (url === "https://challenges.cloudflare.com/turnstile/v0/siteverify") {
-      return new Response(
-        JSON.stringify({ success: options?.turnstileSuccess ?? true }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      // Mirror Cloudflare's full success response so the server-side
+      // hostname/action validation has the fields it expects.
+      const body = options?.turnstileSuccess === false
+        ? { success: false, "error-codes": ["invalid-input-response"] }
+        : { success: true, action: "analyze", hostname: "localhost" };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     throw new Error(`Unexpected fetch URL: ${url}`);
@@ -303,6 +308,25 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({ error: "Verification required." });
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 503 in public production when Turnstile is not configured", async () => {
+    setNodeEnv("production");
+    setDeploymentMode(undefined);
+    process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "secret-token";
+    delete process.env.TURNSTILE_SITE_KEY;
+    delete process.env.TURNSTILE_SECRET_KEY;
+
+    const fetchMock = mockProductionFetch();
+
+    const res = await POST(makeReq({ headers: { "x-client-ip": "203.0.113.10" } }));
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
     expect(mockCreate).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

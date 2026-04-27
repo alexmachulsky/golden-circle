@@ -22,6 +22,7 @@ beforeEach(() => {
   setNodeEnv("test");
   delete process.env.GROQ_API_KEY;
   delete process.env.GROQ_API_KEY_FILE;
+  delete process.env.DEPLOYMENT_MODE;
   delete process.env.TRUSTED_IP_HEADER;
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -38,14 +39,25 @@ afterEach(() => {
 });
 
 describe("/api/health", () => {
-  it("returns 200 degraded when Redis and proxy are not configured (optional services)", async () => {
+  it("returns 503 in public production when Turnstile is disabled", async () => {
     setNodeEnv("production");
     process.env.GROQ_API_KEY = "groq-key";
 
     const res = await GET();
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     await expect(res.json()).resolves.toEqual({ status: "degraded" });
+  });
+
+  it("reports ok in local production when Groq is configured (Upstash/proxy not required)", async () => {
+    setNodeEnv("production");
+    process.env.DEPLOYMENT_MODE = "local";
+    process.env.GROQ_API_KEY = "groq-key";
+
+    const res = await GET();
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ status: "ok" });
   });
 
   it("returns 503 when Groq is not configured", async () => {

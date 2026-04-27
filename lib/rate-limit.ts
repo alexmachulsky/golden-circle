@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { readRuntimeValue } from "@/lib/runtime-env"
 
 /**
@@ -69,11 +70,10 @@ function isLocalProductionDeployment(env: NodeJS.ProcessEnv = process.env): bool
   return isProduction(env) && env.DEPLOYMENT_MODE?.trim().toLowerCase() === "local";
 }
 
-// Matches a bare IPv4 address or a bracketed/bare IPv6 address, optionally with
-// a port suffix — enough to reject obviously spoofed or malformed header values.
-const VALID_IP_RE =
-  /^(?:\[[\da-fA-F:]+\]|[\da-fA-F:]+|(?:\d{1,3}\.){3}\d{1,3})(?::\d+)?$/;
-
+// Strict IP parser: validates with net.isIP() instead of a regex so values like
+// "999.999.999.999", "deadbeef", or ":::::::::" are rejected. Strips optional
+// port suffix and IPv6 brackets so the limiter keys on the address itself,
+// never on a per-connection ephemeral port.
 function normalizeClientKey(rawValue: string | null): string {
   if (!rawValue) {
     return "";
@@ -83,7 +83,43 @@ function normalizeClientKey(rawValue: string | null): string {
   // We use the rightmost value (added by our ingress controller, not the client)
   // so it cannot be spoofed by injecting extra entries at the front.
   const candidate = rawValue.split(",").at(-1)?.trim() ?? "";
-  return VALID_IP_RE.test(candidate) ? candidate : "";
+  if (!candidate) {
+    return "";
+  }
+
+  // Bracketed IPv6 form: "[::1]" or "[::1]:8080"
+  if (candidate.startsWith("[")) {
+    const end = candidate.indexOf("]");
+    if (end === -1) {
+      return "";
+    }
+    const inner = candidate.slice(1, end);
+    const tail = candidate.slice(end + 1);
+    if (tail !== "" && !/^:\d+$/.test(tail)) {
+      return "";
+    }
+    return isIP(inner) === 6 ? inner : "";
+  }
+
+  // Plain form: validate as-is first. Handles bare IPv4 ("1.2.3.4") and
+  // bare IPv6 ("::1") — IPv6 addresses contain colons, so we must not
+  // strip suffixes blindly.
+  if (isIP(candidate)) {
+    return candidate;
+  }
+
+  // IPv4 with port ("1.2.3.4:5678"): exactly one colon, digits-only port.
+  const firstColon = candidate.indexOf(":");
+  const lastColon = candidate.lastIndexOf(":");
+  if (firstColon !== -1 && firstColon === lastColon) {
+    const host = candidate.slice(0, firstColon);
+    const port = candidate.slice(firstColon + 1);
+    if (/^\d+$/.test(port) && isIP(host) === 4) {
+      return host;
+    }
+  }
+
+  return "";
 }
 
 function getUpstashConfig(

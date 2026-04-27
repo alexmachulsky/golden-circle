@@ -76,20 +76,27 @@ Open [http://localhost:7001](http://localhost:7001).
 
 ## Docker
 
-Run with Docker Compose:
+Run the proxied production-like Compose stack:
 
 ```bash
-cp .env.local.example .env.local
-# fill in only the non-secret settings in .env.local
 mkdir -p secrets
 # put the sensitive runtime values into:
 #   secrets/groq_api_key.txt
 #   secrets/upstash_redis_rest_token.txt
 #   secrets/turnstile_secret_key.txt
+export UPSTASH_REDIS_REST_URL="https://<region>-<name>.upstash.io"
+export TURNSTILE_SITE_KEY="<your-public-site-key>"
 docker compose up --build
 ```
 
-The compose stack now fronts the app with the bundled `nginx.conf`, publishes only `127.0.0.1:7001`, and sets `TRUSTED_IP_HEADER=x-real-ip` so production rate limiting can trust the proxy-injected client IP. It expects `UPSTASH_REDIS_REST_URL`, `TURNSTILE_SITE_KEY`, and the Docker-secret-backed values under `/run/secrets/*` to be configured before `/api/analyze` will serve traffic. `.dockerignore` excludes local env files from the build context so secrets are never baked into the image.
+The default Compose stack fronts the app with the bundled `nginx.conf`, publishes only `127.0.0.1:7001`, and sets `TRUSTED_IP_HEADER=x-real-ip` so production rate limiting can trust the proxy-injected client IP. It expects `UPSTASH_REDIS_REST_URL`, `TURNSTILE_SITE_KEY`, and the Docker-secret-backed values under `/run/secrets/*` to be configured before `/api/analyze` will serve traffic. `.dockerignore` excludes local env files from the build context so secrets are never baked into the image.
+
+For local single-container testing with your gitignored `.env.local` Groq key, use the loopback-only local file:
+
+```bash
+cp .env.local.example .env.local
+docker compose -f docker-compose.local.yml up --build
+```
 
 Pre-built images are published to GitHub Container Registry on every merge to `main`. Use an immutable tag for production deployments:
 
@@ -110,6 +117,8 @@ k8s/
 ```
 
 Apply them with `kubectl apply -f k8s/` after creating the namespace and any required secrets.
+
+The app must never trust a client-supplied forwarding header directly. The Kubernetes nginx ingress manifest sets `X-Real-IP` from the actual remote address and overwrites `X-Forwarded-For` before proxying to the app; `TRUSTED_IP_HEADER` must match that sanitized `x-real-ip` header. For an EKS ALB deployment, replace `k8s/ingress.yaml` with the ALB-specific equivalent and verify spoofed `X-Forwarded-For` requests cannot control the app's trusted client IP.
 
 ## CI/CD
 

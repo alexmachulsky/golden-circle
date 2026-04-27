@@ -1,40 +1,17 @@
 /**
- * Runtime configuration read from environment variables.
- * All values have safe development defaults.
+ * Public re-exports of validated runtime configuration.
+ *
+ * The actual env parsing lives in lib/env.ts. This module preserves the
+ * existing import surface (`import { ALLOWED_ORIGINS, ... } from "@/lib/config"`)
+ * so callers don't have to know about the schema layer.
+ *
+ * Tests that need to vary these values continue to vi.mock("@/lib/config")
+ * and provide their own values; nothing in this module reaches into env
+ * directly at request time.
  */
 
-const raw = process.env.ALLOWED_ORIGINS ?? 'http://localhost:7001';
+import { env } from "@/lib/env";
 
-export const ALLOWED_ORIGINS: string[] = raw
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean)
-  .filter((origin) => {
-    try {
-      const url = new URL(origin);
-      return url.protocol === 'http:' || url.protocol === 'https:';
-    } catch {
-      console.warn(`[config] Ignoring invalid origin: ${origin}`);
-      return false;
-    }
-  });
-
-const rawLimit = process.env.RATE_LIMIT_PER_MIN;
-const parsedLimit = rawLimit ? parseInt(rawLimit, 10) : NaN;
-const MAX_RATE_LIMIT = 600;
-export const RATE_LIMIT_PER_MIN: number = (!isNaN(parsedLimit) && parsedLimit > 0 && parsedLimit <= MAX_RATE_LIMIT)
-  ? parsedLimit
-  : 20;
-
-/**
- * The name of the request header that carries the authoritative client IP,
- * as injected by a trusted reverse proxy (e.g. ALB, nginx).
- *
- * Production requests fail closed when this header is unset or absent because
- * the app must not collapse all users into one shared rate-limit bucket.
- * Non-production requests fall back to a local development bucket instead.
- *
- * The reverse proxy MUST strip inbound copies of this header from untrusted
- * clients before appending its own so the value cannot be spoofed.
- */
-export const TRUSTED_IP_HEADER: string | null = process.env.TRUSTED_IP_HEADER ?? null;
+export const ALLOWED_ORIGINS: string[] = env.ALLOWED_ORIGINS;
+export const RATE_LIMIT_PER_MIN: number = env.RATE_LIMIT_PER_MIN;
+export const TRUSTED_IP_HEADER: string | null = env.TRUSTED_IP_HEADER;

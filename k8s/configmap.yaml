@@ -14,7 +14,16 @@ data:
   # For EKS: replace with your ALB/ingress URL, e.g. https://golden-circle.example.com
   # Minikube POC: port-forward maps to :7002. EKS: set to your ALB/ingress URL.
   ALLOWED_ORIGINS: "http://localhost:7001,http://localhost:7002,http://192.168.18.241:7002"
-  TRUSTED_IP_HEADER: "x-forwarded-for"
-  TURNSTILE_SITE_KEY: "replace-with-your-public-site-key"
-  UPSTASH_REDIS_REST_URL: "https://replace-with-your-upstash-url"
+  # Use x-real-ip — ingress-nginx sets this to the single client IP it
+  # observed. x-forwarded-for is a comma-separated chain whose rightmost
+  # entry is the ingress controller's hop, which would key all traffic on
+  # one bucket. The ingress MUST strip any inbound x-real-ip from clients
+  # before setting its own (default in ingress-nginx).
+  TRUSTED_IP_HEADER: "x-real-ip"
+  # Turnstile and Upstash are required for public production. Leave commented
+  # out for local/dev clusters: lib/turnstile rejects mismatched site/secret
+  # pairs, and a placeholder URL for Upstash would 503 every analyze. Set to
+  # real values before applying these manifests to a public cluster.
+  # TURNSTILE_SITE_KEY: "<your-cloudflare-turnstile-site-key>"
+  # UPSTASH_REDIS_REST_URL: "https://<your-upstash-host>"
   RATE_LIMIT_PER_MIN: "20"

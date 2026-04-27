@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { TURNSTILE_ACTION } from "@/lib/turnstile-action";
 
 const LOAD_TIMEOUT_MS = 8_000;
 
@@ -11,6 +12,7 @@ declare global {
         container: HTMLElement,
         options: {
           sitekey: string;
+          action?: string;
           callback: (token: string) => void;
           "expired-callback": () => void;
           "error-callback": () => void;
@@ -75,6 +77,7 @@ export default function TurnstileWidget({ siteKey, onTokenChange }: TurnstileWid
 
     widgetIdRef.current = window.turnstile.render(containerRef.current, {
       sitekey: siteKey,
+      action: TURNSTILE_ACTION,
       callback: (token: string) => {
         setLoadFailed(false);
         onTokenChange(token);
