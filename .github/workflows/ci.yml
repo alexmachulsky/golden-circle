@@ -79,11 +79,27 @@ jobs:
         # Audit only production dependencies; dev deps don't reach the container
         run: npm audit --audit-level=high --omit=dev
 
+  # ── 2b. SECRET SCAN ────────────────────────────────────────────────────────────
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          fetch-depth: 0 # full history so historical leaks are caught
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+
   # ── 3. PACKAGE ────────────────────────────────────────────────────────────
   package:
     name: Package & Scan
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [verify, secret-scan]
 
     permissions:
       contents: read
