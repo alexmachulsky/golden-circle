@@ -78,7 +78,20 @@ Open [http://localhost:7001](http://localhost:7001).
 
 ## Docker
 
-Run the proxied production-like Compose stack:
+### Local (default)
+
+The default Compose stack runs a single loopback-only container for local use:
+
+```bash
+cp .env.local.example .env.local   # add your GROQ_API_KEY
+docker compose up -d --build
+```
+
+It publishes only `127.0.0.1:7001`, reads the Groq key from your gitignored `.env.local`, and sets `DEPLOYMENT_MODE=local` (in-memory rate limiter, no reverse proxy). The loopback binding means a naive `up` is never network-exposed. It is **not** for public deployment.
+
+### Hardened production
+
+For the proxied, secrets-backed public deployment, use the explicit production file:
 
 ```bash
 mkdir -p secrets
@@ -88,17 +101,10 @@ mkdir -p secrets
 #   secrets/turnstile_secret_key.txt
 export UPSTASH_REDIS_REST_URL="https://<region>-<name>.upstash.io"
 export TURNSTILE_SITE_KEY="<your-public-site-key>"
-docker compose up --build
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-The default Compose stack fronts the app with the bundled `nginx.conf`, publishes only `127.0.0.1:7001`, and sets `TRUSTED_IP_HEADER=x-real-ip` so production rate limiting can trust the proxy-injected client IP. It expects `UPSTASH_REDIS_REST_URL`, `TURNSTILE_SITE_KEY`, and the Docker-secret-backed values under `/run/secrets/*` to be configured before `/api/analyze` will serve traffic. `.dockerignore` excludes local env files from the build context so secrets are never baked into the image.
-
-For local single-container testing with your gitignored `.env.local` Groq key, use the loopback-only local file:
-
-```bash
-cp .env.local.example .env.local
-docker compose -f docker-compose.local.yml up --build
-```
+`docker-compose.prod.yml` fronts the app with the bundled `nginx.conf`, publishes only `127.0.0.1:7001`, and sets `TRUSTED_IP_HEADER=x-real-ip` so production rate limiting can trust the proxy-injected client IP. It expects `UPSTASH_REDIS_REST_URL`, `TURNSTILE_SITE_KEY`, and the Docker-secret-backed values under `/run/secrets/*` to be configured before `/api/analyze` will serve traffic. `.dockerignore` excludes local env files from the build context so secrets are never baked into the image.
 
 Pre-built images are published to GitHub Container Registry on every merge to `main`. Use an immutable tag for production deployments:
 
