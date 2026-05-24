@@ -124,13 +124,15 @@ The app must never trust a client-supplied forwarding header directly. The Kuber
 
 ## CI/CD
 
-GitHub Actions runs on every push and pull request to `main`. The pipeline has five stages:
+GitHub Actions runs on every push and pull request to `main`. The main pipeline:
 
 1. **Build** — compile source, produce Next.js artifacts
-2. **Test** — unit tests via Vitest + React Testing Library
-3. **Analyze** — lint, type-check, dependency audit
+2. **Verify** (parallel with Secret Scan) — unit tests, lint, type-check, dependency audit
+3. **Secret Scan** (parallel with Verify) — gitleaks scans the full git history for committed secrets
 4. **Package** — Docker image build + Trivy vulnerability scan (results uploaded as SARIF)
 5. **Publish** — push the image to GHCR (merges to `main` only, tagged with the commit SHA)
+
+Two more security workflows run on their own schedule: **CodeQL** (JavaScript/TypeScript SAST) and **OpenSSF Scorecard** (supply-chain posture, surfaced via the README badge). All workflows pin third-party Actions by commit SHA.
 
 ## How it works
 
