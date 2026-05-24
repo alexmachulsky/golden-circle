@@ -136,6 +136,45 @@ Two more security workflows run on their own schedule: **CodeQL** (JavaScript/Ty
 
 ## How it works
 
+### Architecture
+
+```mermaid
+flowchart LR
+  U[Browser SPA] -->|POST /api/analyze| MW[proxy.ts<br/>CSP nonce]
+  MW --> API[/api/analyze route/]
+  API --> G1{6 request guards}
+  G1 -->|pass| C[(response cache)]
+  C -->|miss| GROQ[Groq LLM<br/>streaming]
+  C -->|hit| U
+  GROQ -->|text/plain stream| U
+  U -->|hash share link| U
+```
+
+### Request flow
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant P as proxy.ts
+  participant R as /api/analyze
+  participant K as Cache
+  participant L as Groq LLM
+  B->>P: POST (idea)
+  P->>R: forward + x-nonce
+  R->>R: guards: content-type, origin, rate-limit,<br/>body size, API key, Turnstile
+  R->>R: sanitize input
+  R->>K: lookup sha256(input)
+  alt cache hit (non-error)
+    K-->>B: cached JSON (stream)
+  else miss
+    R->>L: chat.completions (stream)
+    L-->>R: token chunks
+    R->>R: __ERROR__ preamble scan
+    R-->>B: text/plain stream + X-Request-Id
+    R->>K: store assembled JSON
+  end
+```
+
 1. `components/InputForm.tsx` collects the business idea, shows example prompts, and enforces the 50–2000 character range.
 2. `app/api/analyze/route.ts` sanitizes input, enforces production abuse-protection prerequisites (`TRUSTED_IP_HEADER`, Upstash, Turnstile), checks for `GROQ_API_KEY`, and streams raw text from Groq back to the browser.
 3. `components/GoldenCircleApp.tsx` reads the stream, handles the `__ERROR__` sentinel used for stream-time failures, cleans up common LLM JSON formatting mistakes, and parses the final response into the shared `AnalysisResult` type.
