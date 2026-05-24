@@ -144,6 +144,9 @@ export async function verifyTurnstileToken(options: {
   // but the hostname binding makes sure a token captured from a different
   // site that happens to use the same secret cannot be replayed here.
   const allowedHostnames = getAllowedHostnames(env)
+  if (allowedHostnames.size === 0 && isPublicProduction(env)) {
+    throw new TurnstileError(503, "Service unavailable.", "Turnstile enabled but ALLOWED_ORIGINS has no valid hostnames.")
+  }
   if (allowedHostnames.size > 0) {
     if (!payload.hostname || !allowedHostnames.has(payload.hostname)) {
       console.warn(`[turnstile] hostname mismatch: got "${payload.hostname ?? ""}", allowed ${[...allowedHostnames].join(",")}`)

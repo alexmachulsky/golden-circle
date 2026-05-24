@@ -2,7 +2,7 @@ const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
 
 // Only allow standard base64 characters — no quotes, whitespace, or control chars
 // that could escape a CSP directive.
-const SAFE_NONCE_RE = /^[A-Za-z0-9+/=]+$/;
+const SAFE_NONCE_RE = /^[A-Za-z0-9+/]{22}={2}$|^[A-Za-z0-9+/]{23}={1}$|^[A-Za-z0-9+/]{24}$/;
 
 export function hasTurnstileConfig(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.TURNSTILE_SITE_KEY?.trim() || env.TURNSTILE_SITE_KEY_FILE?.trim());

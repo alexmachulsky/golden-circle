@@ -29,6 +29,7 @@ vi.mock('@/lib/config', () => ({
 
 import { POST } from "./route";
 import { _resetStoreForTesting } from "@/lib/rate-limit";
+import { _resetCacheForTesting } from "@/lib/analyze-cache";
 
 function setNodeEnv(value: string): void {
   (process.env as Record<string, string | undefined>)["NODE_ENV"] = value;
@@ -122,7 +123,11 @@ async function collectStream(res: Response): Promise<string> {
 beforeEach(() => {
   mockCreate.mockReset();
   _resetStoreForTesting();
+  _resetCacheForTesting();
   process.env.GROQ_API_KEY = "test-key";
+  // verifyTurnstileToken reads ALLOWED_ORIGINS from process.env (not the mocked
+  // @/lib/config) for hostname binding; "localhost" matches mockProductionFetch.
+  process.env.ALLOWED_ORIGINS = "http://localhost:7001";
   setNodeEnv("test");
   setDeploymentMode(undefined);
   delete process.env.TEST_TRUSTED_IP_HEADER;
@@ -138,6 +143,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.GROQ_API_KEY;
+  delete process.env.ALLOWED_ORIGINS;
   delete process.env.TEST_TRUSTED_IP_HEADER;
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -377,6 +383,26 @@ describe("Challenge verification", () => {
     expect(challengeBody).toContain("secret=turnstile-secret");
     expect(challengeBody).toContain("response=token-from-widget");
     expect(challengeBody).toContain("remoteip=203.0.113.10");
+  });
+
+  it("fails closed (503) in public production when ALLOWED_ORIGINS has no valid hostname", async () => {
+    setNodeEnv("production");
+    process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "secret-token";
+    process.env.TURNSTILE_SITE_KEY = "site-key";
+    process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
+    process.env.ALLOWED_ORIGINS = ""; // no hostnames → hostname binding impossible
+    mockProductionFetch();
+
+    const res = await POST(makeReq({
+      headers: { "x-client-ip": "203.0.113.10" },
+      body: { businessIdea: DEFAULT_IDEA, turnstileToken: "token-from-widget" },
+    }));
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it("accepts TURNSTILE_SECRET_KEY_FILE when Turnstile is enabled", async () => {

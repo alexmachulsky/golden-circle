@@ -131,6 +131,9 @@ export async function POST(req: Request) {
   const sanitized = sanitizeInput(rawBody.businessIdea);
 
   // ── Guard 6: Human verification ────────────────────────────────────────
+  if (rawBody.turnstileToken !== undefined && typeof rawBody.turnstileToken !== "string") {
+    return Response.json({ error: "turnstileToken must be a string." }, { status: 400, headers: ERROR_HEADERS });
+  }
   try {
     await verifyTurnstileToken({
       token: rawBody.turnstileToken,
@@ -152,7 +155,7 @@ export async function POST(req: Request) {
     // Cache failures must never block the request — fall through to Groq.
     console.warn("[analyze] cache lookup failed:", err instanceof Error ? err.message : String(err));
   }
-  if (cached) {
+  if (cached && !cached.includes("__ERROR__")) {
     return new Response(cached, { headers: STREAM_HEADERS });
   }
 
