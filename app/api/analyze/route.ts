@@ -17,6 +17,7 @@ import {
 } from "@/lib/analyze-cache";
 
 import { MIN_INPUT_LENGTH, MAX_INPUT_LENGTH } from "@/lib/constants";
+import { logger, newRequestId } from "@/lib/logger";
 
 const MODEL = "llama-3.3-70b-versatile";
 const BODY_LIMIT_BYTES = 8 * 1024; // 8 KB - well above the MAX_INPUT_LENGTH-char input maximum
@@ -44,6 +45,9 @@ const STREAM_HEADERS = {
 };
 
 export async function POST(req: Request) {
+  const reqId = newRequestId();
+  const errorHeaders = { ...ERROR_HEADERS, "X-Request-Id": reqId };
+  const streamHeaders = { ...STREAM_HEADERS, "X-Request-Id": reqId };
   let clientKey = "__local__";
 
   // ── Guard 1: Content-Type ───────────────────────────────────────────────
@@ -51,7 +55,7 @@ export async function POST(req: Request) {
     assertJsonContentType(req);
   } catch (err) {
     if (err instanceof HttpError) {
-      return Response.json({ error: err.clientMessage }, { status: err.status, headers: ERROR_HEADERS });
+      return Response.json({ error: err.clientMessage }, { status: err.status, headers: errorHeaders });
     }
     throw err;
   }
@@ -61,7 +65,7 @@ export async function POST(req: Request) {
     assertAllowedOrigin(req, ALLOWED_ORIGINS);
   } catch (err) {
     if (err instanceof HttpError) {
-      return Response.json({ error: err.clientMessage }, { status: err.status, headers: ERROR_HEADERS });
+      return Response.json({ error: err.clientMessage }, { status: err.status, headers: errorHeaders });
     }
     throw err;
   }
@@ -77,13 +81,13 @@ export async function POST(req: Request) {
     if (!allowed) {
       return Response.json(
         { error: "Too many requests. Please wait a moment and try again." },
-        { status: 429, headers: { ...ERROR_HEADERS, "Retry-After": "60" } },
+        { status: 429, headers: { ...errorHeaders, "Retry-After": "60" } },
       );
     }
   } catch (err) {
     if (err instanceof RateLimitError) {
-      console.error("[analyze] rate-limit unavailable:", err.message);
-      return Response.json({ error: err.clientMessage }, { status: 503, headers: ERROR_HEADERS });
+      logger.error("rate-limit unavailable", { reqId, err: err.message });
+      return Response.json({ error: err.clientMessage }, { status: 503, headers: errorHeaders });
     }
 
     throw err;
@@ -95,7 +99,7 @@ export async function POST(req: Request) {
     body = await readJsonWithLimit(req, BODY_LIMIT_BYTES);
   } catch (err) {
     if (err instanceof HttpError) {
-      return Response.json({ error: err.clientMessage }, { status: err.status, headers: ERROR_HEADERS });
+      return Response.json({ error: err.clientMessage }, { status: err.status, headers: errorHeaders });
     }
     throw err;
   }
@@ -105,26 +109,26 @@ export async function POST(req: Request) {
   try {
     apiKey = readRuntimeValue("GROQ_API_KEY");
   } catch (err) {
-    console.error("[analyze] failed to read GROQ_API_KEY:", err instanceof Error ? err.message : String(err));
-    return Response.json({ error: "Service unavailable." }, { status: 500, headers: ERROR_HEADERS });
+    logger.error("failed to read GROQ_API_KEY", { reqId, err: err instanceof Error ? err.message : String(err) });
+    return Response.json({ error: "Service unavailable." }, { status: 500, headers: errorHeaders });
   }
 
   if (!apiKey) {
-    console.error("[analyze] GROQ_API_KEY is not set");
-    return Response.json({ error: "Service unavailable." }, { status: 500, headers: ERROR_HEADERS });
+    logger.error("GROQ_API_KEY is not set", { reqId });
+    return Response.json({ error: "Service unavailable." }, { status: 500, headers: errorHeaders });
   }
 
   // ── Validate businessIdea ───────────────────────────────────────────────
   const rawBody = body as Record<string, unknown>;
   if (!rawBody.businessIdea || typeof rawBody.businessIdea !== "string") {
-    return Response.json({ error: "businessIdea is required." }, { status: 400, headers: ERROR_HEADERS });
+    return Response.json({ error: "businessIdea is required." }, { status: 400, headers: errorHeaders });
   }
 
   const rawInput = rawBody.businessIdea.trim();
   if (rawInput.length < MIN_INPUT_LENGTH) {
     return Response.json(
       { error: `Please provide at least ${MIN_INPUT_LENGTH} characters describing your business idea.` },
-      { status: 400, headers: ERROR_HEADERS },
+      { status: 400, headers: errorHeaders },
     );
   }
 
@@ -132,7 +136,7 @@ export async function POST(req: Request) {
 
   // ── Guard 6: Human verification ────────────────────────────────────────
   if (rawBody.turnstileToken !== undefined && typeof rawBody.turnstileToken !== "string") {
-    return Response.json({ error: "turnstileToken must be a string." }, { status: 400, headers: ERROR_HEADERS });
+    return Response.json({ error: "turnstileToken must be a string." }, { status: 400, headers: errorHeaders });
   }
   try {
     await verifyTurnstileToken({
@@ -141,7 +145,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     if (err instanceof TurnstileError) {
-      return Response.json({ error: err.clientMessage }, { status: err.status, headers: ERROR_HEADERS });
+      return Response.json({ error: err.clientMessage }, { status: err.status, headers: errorHeaders });
     }
     throw err;
   }
@@ -153,10 +157,10 @@ export async function POST(req: Request) {
     cached = await getCachedAnalysis(cacheKey);
   } catch (err) {
     // Cache failures must never block the request — fall through to Groq.
-    console.warn("[analyze] cache lookup failed:", err instanceof Error ? err.message : String(err));
+    logger.warn("cache lookup failed", { reqId, err: err instanceof Error ? err.message : String(err) });
   }
   if (cached && !cached.includes("__ERROR__")) {
-    return new Response(cached, { headers: STREAM_HEADERS });
+    return new Response(cached, { headers: streamHeaders });
   }
 
   // ── Stream Groq response ────────────────────────────────────────────────
@@ -247,11 +251,11 @@ export async function POST(req: Request) {
         // non-JSON payloads itself.
         if (fullResponse) {
           setCachedAnalysis(cacheKey, fullResponse).catch((err) => {
-            console.warn("[analyze] cache write failed:", err instanceof Error ? err.message : String(err));
+            logger.warn("cache write failed", { reqId, err: err instanceof Error ? err.message : String(err) });
           });
         }
       } catch (err: unknown) {
-        console.error("[analyze] upstream error:", err instanceof Error ? err.message : String(err));
+        logger.error("upstream error", { reqId, err: err instanceof Error ? err.message : String(err) });
         const isTimeout =
           err instanceof Error &&
           (err.name === "AbortError" || err.message.toLowerCase().includes("abort"));
@@ -266,5 +270,5 @@ export async function POST(req: Request) {
     },
   });
 
-  return new Response(readable, { headers: STREAM_HEADERS });
+  return new Response(readable, { headers: streamHeaders });
 }
