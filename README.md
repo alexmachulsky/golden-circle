@@ -2,6 +2,8 @@
 
 [![CI/CD Pipeline](https://github.com/alexmachulsky/golden-circle/actions/workflows/ci.yml/badge.svg)](https://github.com/alexmachulsky/golden-circle/actions/workflows/ci.yml)
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/alexmachulsky/golden-circle/badge)](https://scorecard.dev/viewer/?uri=github.com/alexmachulsky/golden-circle)
+
 Turn a rough business idea into a structured **WHY / HOW / WHAT** strategy using Simon Sinek's Golden Circle framework — powered by AI, streamed in real time, and rendered as an interactive visualization.
 
 ## Features
