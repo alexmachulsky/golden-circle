@@ -135,7 +135,7 @@ export async function POST(req: Request) {
   const sanitized = sanitizeInput(rawBody.businessIdea);
 
   // ── Guard 6: Human verification ────────────────────────────────────────
-  if (rawBody.turnstileToken !== undefined && typeof rawBody.turnstileToken !== "string") {
+  if (rawBody.turnstileToken != null && typeof rawBody.turnstileToken !== "string") {
     return Response.json({ error: "turnstileToken must be a string." }, { status: 400, headers: errorHeaders });
   }
   try {
@@ -181,7 +181,10 @@ export async function POST(req: Request) {
         const stream = await groq.chat.completions.create(
           {
             model: MODEL,
-            max_tokens: 1024,
+            // The schema (WHY + 4 HOW + 3 WHAT + notes, each 1-2 sentences) needs
+            // well over 1024 tokens; too low truncates the JSON mid-object and the
+            // client's parseAnalysis then fails ("Could not parse the AI response").
+            max_tokens: 2048,
             stream: true,
             messages: [
               { role: "system", content: SYSTEM_PROMPT },

@@ -475,6 +475,26 @@ describe("Happy path", () => {
     await expect(collectStream(res)).resolves.toBe("{}");
   });
 
+  it("accepts a null turnstileToken when Turnstile is not configured", async () => {
+    // The client sends `turnstileToken: null` whenever the widget is absent;
+    // the type guard must treat null like undefined, not reject it as malformed.
+    mockCreate.mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: { content: "{}" } }] };
+      })(),
+    );
+
+    const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, turnstileToken: null } }));
+    expect(res.status).toBe(200);
+    await expect(collectStream(res)).resolves.toBe("{}");
+  });
+
+  it("rejects a non-string, non-null turnstileToken as malformed", async () => {
+    const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, turnstileToken: 123 } }));
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "turnstileToken must be a string." });
+  });
+
   it("streams the model response text", async () => {
     const chunks = ['{"why":', '{"statement":"Test"}}'];
     mockCreate.mockResolvedValue(
