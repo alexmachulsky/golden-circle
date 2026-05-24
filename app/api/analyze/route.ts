@@ -160,8 +160,10 @@ export async function POST(req: Request) {
     logger.warn("cache lookup failed", { reqId, err: err instanceof Error ? err.message : String(err) });
   }
   if (cached && !cached.includes("__ERROR__")) {
+    logger.info("analyze", { reqId, cache: "hit", status: 200 });
     return new Response(cached, { headers: streamHeaders });
   }
+  logger.info("analyze", { reqId, cache: "miss", status: 200 });
 
   // ── Stream Groq response ────────────────────────────────────────────────
   const groq = new Groq({ apiKey });
