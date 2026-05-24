@@ -7,6 +7,7 @@ import ResultSection from '@/components/ResultSection';
 import ThemeToggle from '@/components/ThemeToggle';
 import type { AnalysisResult } from '@/types';
 import { parseAnalysis } from '@/lib/validate-analysis';
+import { decodeAnalysisFromHash } from '@/lib/share-link';
 
 type AppState = 'input' | 'loading' | 'result';
 
@@ -23,6 +24,16 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
   // Abort any in-flight request on unmount
   useEffect(() => {
     return () => { abortControllerRef.current?.abort(); };
+  }, []);
+
+  // Restore a shared analysis from the URL hash on first load
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const restored = decodeAnalysisFromHash(window.location.hash);
+    if (restored) {
+      setResult(restored);
+      setAppState('result');
+    }
   }, []);
 
   // Guard: if result state is reached with no data, reset to input
@@ -100,6 +111,9 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
     setResult(null);
     setError(null);
     setAppState('input');
+    if (typeof window !== 'undefined' && window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
   }, []);
 
   return (

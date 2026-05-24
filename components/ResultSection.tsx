@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import GoldenCircle from '@/components/GoldenCircle';
 import type { AnalysisResult, ActiveSection } from '@/types';
+import { buildShareUrl } from '@/lib/share-link';
 
 interface ResultSectionProps {
   result: AnalysisResult;
@@ -60,12 +61,14 @@ function Tooltip({ text }: { text: string }) {
 export default function ResultSection({ result, onReset }: ResultSectionProps) {
   const [activeSection, setActiveSection] = useState<ActiveSection>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clean up copy-success timer on unmount
   useEffect(() => {
     return () => {
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      if (shareTimerRef.current) clearTimeout(shareTimerRef.current);
     };
   }, []);
 
@@ -102,6 +105,19 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
   const handlePrint = useCallback(() => {
     window.print();
   }, []);
+
+  const handleShare = useCallback(async () => {
+    try {
+      const url = buildShareUrl(result, window.location.origin, window.location.pathname);
+      await navigator.clipboard.writeText(url);
+      window.history.replaceState(null, '', url);
+      setShareState('copied');
+    } catch {
+      setShareState('failed');
+    }
+    if (shareTimerRef.current) clearTimeout(shareTimerRef.current);
+    shareTimerRef.current = setTimeout(() => setShareState('idle'), 2000);
+  }, [result]);
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-10">
@@ -144,6 +160,20 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
               />
             </svg>
             {copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? 'Copy failed' : 'Copy'}
+          </button>
+          <button
+            onClick={handleShare}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-navy-700 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 text-xs transition-all"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path
+                d="M8 3.5a1.5 1.5 0 11.7 1.27l-3.7 2a1.5 1.5 0 010 .46l3.7 2a1.5 1.5 0 11-.46.86l-3.7-2a1.5 1.5 0 110-2.18l3.7-2A1.5 1.5 0 018 3.5z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {shareState === 'copied' ? 'Link copied!' : shareState === 'failed' ? 'Share failed' : 'Share'}
           </button>
           <button
             onClick={handlePrint}
@@ -356,6 +386,12 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
           className="px-6 py-2.5 rounded-xl border border-navy-700 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 text-sm transition-all"
         >
           {copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? 'Copy failed' : 'Copy to Clipboard'}
+        </button>
+        <button
+          onClick={handleShare}
+          className="px-6 py-2.5 rounded-xl border border-navy-700 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 text-sm transition-all"
+        >
+          {shareState === 'copied' ? 'Link copied!' : shareState === 'failed' ? 'Share failed' : 'Copy share link'}
         </button>
         <button
           onClick={handlePrint}
