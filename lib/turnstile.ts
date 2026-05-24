@@ -1,5 +1,6 @@
 import { readRuntimeValue } from "@/lib/runtime-env"
 import { TURNSTILE_ACTION } from "@/lib/turnstile-action"
+import { logger } from "@/lib/logger"
 
 const VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 const VERIFY_TIMEOUT_MS = 5_000
@@ -128,7 +129,7 @@ export async function verifyTurnstileToken(options: {
 
   if (!payload.success) {
     const errorCodes = payload["error-codes"] ?? []
-    console.warn("[turnstile] rejected:", errorCodes.length ? errorCodes.join(",") : "no-error-codes")
+    logger.warn("turnstile rejected", { codes: errorCodes.length ? errorCodes.join(",") : "no-error-codes" })
     throw new TurnstileError(403, "Verification failed.", "Turnstile rejected the submitted token.")
   }
 
@@ -136,7 +137,7 @@ export async function verifyTurnstileToken(options: {
   // that was issued for a different widget on the same site (replay across
   // actions).
   if (payload.action !== TURNSTILE_ACTION) {
-    console.warn(`[turnstile] action mismatch: got "${payload.action ?? ""}", expected "${TURNSTILE_ACTION}"`)
+    logger.warn("turnstile action mismatch", { got: payload.action ?? "", expected: TURNSTILE_ACTION })
     throw new TurnstileError(403, "Verification failed.", "Turnstile token issued for a different action.")
   }
 
@@ -149,7 +150,7 @@ export async function verifyTurnstileToken(options: {
   }
   if (allowedHostnames.size > 0) {
     if (!payload.hostname || !allowedHostnames.has(payload.hostname)) {
-      console.warn(`[turnstile] hostname mismatch: got "${payload.hostname ?? ""}", allowed ${[...allowedHostnames].join(",")}`)
+      logger.warn("turnstile hostname mismatch", { got: payload.hostname ?? "", allowed: [...allowedHostnames].join(",") })
       throw new TurnstileError(403, "Verification failed.", "Turnstile token issued for a different hostname.")
     }
   }

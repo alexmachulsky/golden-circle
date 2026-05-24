@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readRuntimeValue } from "@/lib/runtime-env";
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
 
 /**
  * Identical-input cache for /api/analyze.
@@ -86,17 +87,17 @@ async function upstashCommand<T = unknown>(
       signal: AbortSignal.timeout(UPSTASH_TIMEOUT_MS),
     });
   } catch (err) {
-    console.warn("[analyze-cache] upstash request failed:", err instanceof Error ? err.message : String(err));
+    logger.warn("cache upstash request failed", { err: err instanceof Error ? err.message : String(err) });
     return null;
   }
   if (!response.ok) {
-    console.warn(`[analyze-cache] upstash HTTP ${response.status}`);
+    logger.warn("cache upstash non-ok", { status: response.status });
     return null;
   }
   try {
     const payload = (await response.json()) as { result?: T; error?: string };
     if (payload.error) {
-      console.warn("[analyze-cache] upstash error:", payload.error);
+      logger.warn("cache upstash error", { err: String(payload.error) });
       return null;
     }
     return (payload.result ?? null) as T | null;

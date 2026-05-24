@@ -1,5 +1,6 @@
 import { readRuntimeValue } from "@/lib/runtime-env";
 import { getTurnstileSiteKey } from "@/lib/turnstile";
+import { logger } from "@/lib/logger";
 
 export async function GET() {
   const isPublicProduction =
@@ -53,7 +54,7 @@ export async function GET() {
   // Only expose aggregate status to unauthenticated callers.
   // Detailed service breakdown is logged server-side for operators.
   if (!canServeRequests || !fullyConfigured) {
-    console.warn("[health] degraded:", {
+    logger.warn("health degraded", {
       groq: groqConfigured ? "ok" : "missing",
       rateLimit: rateLimitConfigured ? "ok" : "missing",
       trustedProxy: trustedProxyConfigured ? "ok" : "missing",
