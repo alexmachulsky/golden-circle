@@ -8,19 +8,19 @@ services:
     container_name: golden-circle
     restart: unless-stopped
     ports:
-      # Loopback-only local-dev default: `docker compose up -d --build` just works
-      # using the Groq key in .env.local, the in-memory rate limiter, and no
-      # reverse proxy. Bound to 127.0.0.1 so a naive `up` is never network-exposed.
-      # For the hardened, nginx-fronted public deployment use docker-compose.prod.yml
-      # (Docker secrets + Upstash + Turnstile) or the k8s manifests.
-      - "127.0.0.1:7001:7001"
+      # LAN-exposed: bound to 0.0.0.0 so other machines on the local network can
+      # reach the app (e.g. browsing to http://192.168.18.241:7001). Note: this
+      # removes the loopback-only safeguard — there is no reverse proxy, TLS, or
+      # per-IP rate limiting in front of it. For a hardened public deployment use
+      # docker-compose.prod.yml (Docker secrets + Upstash + Turnstile) or k8s.
+      - "0.0.0.0:7001:7001"
     read_only: true
     tmpfs:
       - /tmp:size=64M,noexec,nosuid
     environment:
       NODE_ENV: production
       DEPLOYMENT_MODE: local
-      ALLOWED_ORIGINS: "http://localhost:7001,http://127.0.0.1:7001"
+      ALLOWED_ORIGINS: "http://localhost:7001,http://127.0.0.1:7001,http://192.168.18.241:7001"
     env_file:
       - .env.local
     cap_drop:
