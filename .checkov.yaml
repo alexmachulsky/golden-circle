@@ -1,0 +1,43 @@
+# Checkov configuration — IaC static analysis (Dockerfile, Kubernetes, GH Actions).
+# Run locally:  checkov --config-file .checkov.yaml
+#
+# Posture mirrors .trivyignore: checkov runs as an informational SARIF report
+# uploaded to the GitHub Security tab (soft-fail), while the hard config gates
+# are hadolint, kubeconform, kube-score, and the Kyverno policy tests. The skips
+# below are the deliberate, documented exceptions for this repo's deployment.
+directory:
+  - .
+framework:
+  - dockerfile
+  - kubernetes
+  - github_actions
+# Don't descend into vendored / build / VCS trees — only first-party IaC.
+skip-path:
+  - node_modules
+  - .next
+  - .git
+  - .worktrees
+compact: true
+quiet: true
+# Soft-fail: surface findings without blocking. The accepted findings below are
+# Minikube-POC / Next.js-runtime decisions already documented in k8s/deployment.yaml.
+soft-fail: true
+skip-check:
+  # CKV_K8S_14 / CKV_K8S_43 — image tag is ':latest' / not a digest.
+  #   deployment.yaml side-loads golden-circle:latest into Minikube; the EKS
+  #   step (documented inline) pins a GHCR digest.
+  - CKV_K8S_14
+  - CKV_K8S_43
+  # CKV_K8S_15 — imagePullPolicy should be Always.
+  #   'Never' is required for the Minikube side-loaded image.
+  - CKV_K8S_15
+  # CKV_K8S_22 — readOnlyRootFilesystem should be true.
+  #   Next.js standalone writes to a tmp dir at runtime; documented in deployment.yaml.
+  - CKV_K8S_22
+  # CKV_K8S_35 — prefer secrets as files over environment variables.
+  #   Secrets are sourced from a Kubernetes Secret via secretKeyRef; the app
+  #   also supports *_FILE for Docker-secret deployments (lib/runtime-env.ts).
+  - CKV_K8S_35
+  # CKV_K8S_40 — run with a high UID (>10000).
+  #   uid 1001 is fixed to match the non-root user baked into the Dockerfile.
+  - CKV_K8S_40

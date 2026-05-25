@@ -1,0 +1,82 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: pod-security-baseline-tests
+policies:
+  - ../require-run-as-nonroot.yaml
+  - ../disallow-privilege-escalation.yaml
+  - ../require-drop-all-capabilities.yaml
+  - ../require-resource-limits.yaml
+  - ../disallow-latest-tag.yaml
+resources:
+  - resources.yaml
+results:
+  # ── require-run-as-nonroot ──
+  - policy: require-run-as-nonroot
+    rule: run-as-non-root
+    kind: Pod
+    resources: [good-pod]
+    result: pass
+  - policy: require-run-as-nonroot
+    rule: run-as-non-root
+    kind: Pod
+    resources: [bad-pod]
+    result: fail
+
+  # ── disallow-privilege-escalation ──
+  - policy: disallow-privilege-escalation
+    rule: deny-privilege-escalation
+    kind: Pod
+    resources: [good-pod]
+    result: pass
+  - policy: disallow-privilege-escalation
+    rule: deny-privilege-escalation
+    kind: Pod
+    resources: [bad-pod]
+    result: fail
+
+  # ── require-drop-all-capabilities ──
+  - policy: require-drop-all-capabilities
+    rule: require-drop-all
+    kind: Pod
+    resources: [good-pod]
+    result: pass
+  - policy: require-drop-all-capabilities
+    rule: require-drop-all
+    kind: Pod
+    resources: [bad-pod]
+    result: fail
+
+  # ── require-resource-limits ──
+  - policy: require-resource-limits
+    rule: require-requests-and-limits
+    kind: Pod
+    resources: [good-pod]
+    result: pass
+  - policy: require-resource-limits
+    rule: require-requests-and-limits
+    kind: Pod
+    resources: [bad-pod]
+    result: fail
+
+  # ── disallow-latest-tag ──
+  - policy: disallow-latest-tag
+    rule: require-image-tag
+    kind: Pod
+    resources: [good-pod]
+    result: pass
+  - policy: disallow-latest-tag
+    rule: require-image-tag
+    kind: Pod
+    resources: [bad-pod]
+    result: pass
+  - policy: disallow-latest-tag
+    rule: validate-image-tag
+    kind: Pod
+    resources: [good-pod]
+    result: pass
+  - policy: disallow-latest-tag
+    rule: validate-image-tag
+    kind: Pod
+    resources: [bad-pod]
+    result: fail

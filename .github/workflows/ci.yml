@@ -1,11 +1,17 @@
 name: CI/CD Pipeline
 
 # ─────────────────────────────────────────────
-# Pipeline stages (sequential)
-#   1. build   — compile source, produce Next.js artifacts
-#   2. verify  — unit tests, lint, type-check, dependency audit
-#   3. package — Docker image build + Trivy vulnerability scan → SARIF
-#   4. publish — push image to GHCR (main branch, production environment)
+# Pipeline stages
+#   1.  build       — compile source, produce Next.js artifacts
+#   2.  verify      — unit tests, lint, type-check, dependency audit
+#   2b. secret-scan — gitleaks full-history scan
+#   2c. iac-lint    — hadolint, actionlint, kubeconform, kube-score, checkov
+#   2d. policy      — Kyverno policy unit tests + report vs. live manifests
+#   3.  package     — Docker image build + Trivy vulnerability scan → SARIF
+#   4.  publish     — push image to GHCR (main branch, production environment)
+#
+# All third-party tools run from Docker images pinned by sha256 digest, matching
+# the base-image pinning in the Dockerfile.
 # ─────────────────────────────────────────────
 
 on:
@@ -97,11 +103,110 @@ jobs:
         env:
           GITLEAKS_CONFIG: .gitleaks.toml
 
+  # ── 2c. IAC & CONFIG LINT ──────────────────────────────────────────────────
+  # Lints the artifacts that produce the running system — the Dockerfile, the
+  # workflows themselves, and the Kubernetes manifests — none of which Trivy or
+  # CodeQL cover. Deterministic linters (hadolint, actionlint, kubeconform,
+  # kube-score) gate the build; Checkov uploads an informational SARIF report.
+  iac-lint:
+    name: IaC & Config Lint
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      contents: read
+      security-events: write  # upload Checkov SARIF to the Security tab
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
+
+      - name: Lint Dockerfile (hadolint)
+        # Mount the repo so hadolint discovers .hadolint.yaml from the work dir.
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            hadolint/hadolint:2.12.0-alpine@sha256:3c206a451cec6d486367e758645269fd7d696c5ccb6ff59d8b03b0e45268a199 \
+            Dockerfile
+
+      - name: Lint GitHub Actions workflows (actionlint)
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 \
+            -color
+
+      - name: Validate Kubernetes schemas (kubeconform)
+        # Only the workload manifests; the Kyverno CRDs in k8s/policies/ are
+        # validated by the policy job. -strict rejects unknown fields.
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            ghcr.io/yannh/kubeconform:v0.6.7-alpine@sha256:824e0c248809e4b2da2a768b16b107cf17ada88a89ec6aa6050e566ba93ebbc6 \
+            -strict -summary -ignore-missing-schemas \
+            k8s/namespace.yaml k8s/configmap.yaml k8s/deployment.yaml \
+            k8s/service.yaml k8s/ingress.yaml k8s/networkpolicy.yaml k8s/rbac.yaml
+
+      - name: Score Kubernetes manifests (kube-score)
+        # container-image-tag / container-image-pull-policy are CRITICAL in
+        # kube-score but are deliberate Minikube-POC choices (see k8s/deployment.yaml).
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            zegl/kube-score:v1.20.0@sha256:2df34e708c78481f3f9de32f6b82060f3ec5c6694f51dc87e656668ecd881b68 \
+            score \
+            --ignore-test container-image-tag,container-image-pull-policy \
+            k8s/deployment.yaml k8s/service.yaml
+
+      - name: Checkov (IaC misconfig → SARIF)
+        # soft-fail (.checkov.yaml): report, don't block. SARIF → Security tab.
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo --entrypoint checkov \
+            ghcr.io/bridgecrewio/checkov:3.2.334@sha256:888060aaaa6f4499fd3b00a1a03185ed760937b049d438fa6e00b3203a5d613e \
+            --config-file .checkov.yaml -o sarif > checkov.sarif
+
+      - name: Upload Checkov SARIF to GitHub Security tab
+        if: ${{ always() && hashFiles('checkov.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225  # v4
+        with:
+          sarif_file: checkov.sarif
+          category: checkov
+
+  # ── 2d. POLICY-AS-CODE (Kyverno) ───────────────────────────────────────────
+  # `kyverno test` proves the ClusterPolicies pass compliant pods and fail
+  # violations (gating). `kyverno apply` then reports the live manifests against
+  # the same policies in Audit mode (non-gating — see k8s/policies/README.md).
+  policy:
+    name: Policy (Kyverno)
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
+
+      - name: Kyverno policy unit tests
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            ghcr.io/kyverno/kyverno-cli:v1.13.4@sha256:cbff7f69822804b4331539372941b1a458bb79da4dce899ea3149095435feccc \
+            test k8s/policies/tests/
+
+      - name: Kyverno policies vs. live manifests (report)
+        # Audit mode + --audit-warn: reports violations without failing the job.
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$PWD":/repo -w /repo \
+            ghcr.io/kyverno/kyverno-cli:v1.13.4@sha256:cbff7f69822804b4331539372941b1a458bb79da4dce899ea3149095435feccc \
+            apply \
+            k8s/policies/require-run-as-nonroot.yaml \
+            k8s/policies/disallow-privilege-escalation.yaml \
+            k8s/policies/require-drop-all-capabilities.yaml \
+            k8s/policies/require-resource-limits.yaml \
+            k8s/policies/disallow-latest-tag.yaml \
+            --resource k8s/deployment.yaml --audit-warn
+
   # ── 3. PACKAGE ────────────────────────────────────────────────────────────
   package:
     name: Package & Scan
     runs-on: ubuntu-latest
-    needs: [verify, secret-scan]
+    needs: [verify, secret-scan, iac-lint, policy]
 
     permissions:
       contents: read

@@ -1,0 +1,44 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      The ':latest' tag is mutable, so the running image is non-deterministic and
+      cannot be audited. Every image must carry an explicit, immutable tag.
+      NOTE: k8s/deployment.yaml intentionally uses golden-circle:latest for the
+      Minikube proof-of-concept (the image is side-loaded, never pulled). This
+      policy therefore runs in Audit mode and reports — rather than blocks — that
+      manifest, which is the documented EKS hardening step (pin to a GHCR digest).
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: require-image-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "An explicit image tag is required."
+        pattern:
+          spec:
+            containers:
+              - image: "*:*"
+    - name: validate-image-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Using a mutable ':latest' tag is not allowed; pin an explicit tag or digest."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"

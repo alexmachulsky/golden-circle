@@ -1,0 +1,18 @@
+# hadolint configuration — Dockerfile linting.
+# Run locally:  docker run --rm -i hadolint/hadolint < Dockerfile
+#
+# failure-threshold: warning  → CI fails on warnings and errors, not just errors.
+failure-threshold: warning
+
+ignored:
+  # DL3018 — "Pin versions in apk add". Alpine package versions are removed from
+  # the repository when superseded, so pinning them makes the build break
+  # unpredictably over time. We mitigate the supply-chain concern differently:
+  # the base image is pinned by sha256 digest and `apk upgrade --no-cache` pulls
+  # the latest security patches at build time. Justified, time-bounded review at
+  # each Node base-image bump.
+  - DL3018
+
+trustedRegistries:
+  - docker.io
+  - ghcr.io
