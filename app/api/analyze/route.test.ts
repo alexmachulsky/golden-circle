@@ -3,16 +3,18 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// ── Shared mock for groq create — replaced per-test as needed ───────────────
+// ── Shared mock for the chat-completions create — replaced per-test as needed ─
 const mockCreate = vi.fn();
 const originalFetch = global.fetch;
 const DEFAULT_IDEA = "A business idea that is at least fifty characters long for testing.";
 const tempDirs: string[] = [];
 
-// ── Mock groq-sdk before importing the route ────────────────────────────────
-vi.mock('groq-sdk', () => {
+// ── Mock the openai SDK before importing the route ──────────────────────────
+// The route calls OpenRouter (OpenAI-compatible) via the official `openai`
+// client; the streaming chunk shape is identical to the previous groq-sdk.
+vi.mock('openai', () => {
   return {
-    default: class MockGroq {
+    default: class MockOpenAI {
       chat = { completions: { create: mockCreate } };
     },
   };
@@ -124,7 +126,7 @@ beforeEach(() => {
   mockCreate.mockReset();
   _resetStoreForTesting();
   _resetCacheForTesting();
-  process.env.GROQ_API_KEY = "test-key";
+  process.env.OPENROUTER_API_KEY = "test-key";
   // verifyTurnstileToken reads ALLOWED_ORIGINS from process.env (not the mocked
   // @/lib/config) for hostname binding; "localhost" matches mockProductionFetch.
   process.env.ALLOWED_ORIGINS = "http://localhost:7001";
@@ -134,7 +136,7 @@ beforeEach(() => {
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
   delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
-  delete process.env.GROQ_API_KEY_FILE;
+  delete process.env.OPENROUTER_API_KEY_FILE;
   delete process.env.TURNSTILE_SITE_KEY;
   delete process.env.TURNSTILE_SITE_KEY_FILE;
   delete process.env.TURNSTILE_SECRET_KEY;
@@ -142,13 +144,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.GROQ_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
   delete process.env.ALLOWED_ORIGINS;
   delete process.env.TEST_TRUSTED_IP_HEADER;
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
   delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
-  delete process.env.GROQ_API_KEY_FILE;
+  delete process.env.OPENROUTER_API_KEY_FILE;
   delete process.env.TURNSTILE_SITE_KEY;
   delete process.env.TURNSTILE_SITE_KEY_FILE;
   delete process.env.TURNSTILE_SECRET_KEY;
@@ -256,13 +258,13 @@ describe("Rate limit guard", () => {
 });
 
 describe("Error message hygiene", () => {
-  it("returns generic message, not GROQ_API_KEY text, when key is missing", async () => {
-    delete process.env.GROQ_API_KEY;
+  it("returns generic message, not OPENROUTER_API_KEY text, when key is missing", async () => {
+    delete process.env.OPENROUTER_API_KEY;
     const req = makeReq({});
     const res = await POST(req);
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).not.toContain("GROQ_API_KEY");
+    expect(json.error).not.toContain("OPENROUTER_API_KEY");
     expect(json.error).not.toContain("configure");
   });
 
@@ -280,9 +282,9 @@ describe("Error message hygiene", () => {
 });
 
 describe("Runtime secret files", () => {
-  it("accepts GROQ_API_KEY_FILE when the direct env var is absent", async () => {
-    delete process.env.GROQ_API_KEY;
-    process.env.GROQ_API_KEY_FILE = createSecretFile("groq-api-key.txt", "file-backed-key");
+  it("accepts OPENROUTER_API_KEY_FILE when the direct env var is absent", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY_FILE = createSecretFile("groq-api-key.txt", "file-backed-key");
 
     mockCreate.mockResolvedValue(
       (async function* () {

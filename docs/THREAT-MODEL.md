@@ -31,7 +31,7 @@ LLM call:
 3. **Rate limit** — per-client token bucket; fails closed in public production
    without shared Upstash + trusted IP header (429 / 503).
 4. **Body size** — 8 KB cap before parsing (413).
-5. **API key** — `GROQ_API_KEY` presence (500 if missing).
+5. **API key** — `OPENROUTER_API_KEY` presence (500 if missing).
 6. **Human verification** — optional Cloudflare Turnstile, with action +
    hostname binding; fails closed in public production if misconfigured (503).
 

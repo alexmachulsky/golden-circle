@@ -22,7 +22,7 @@ RUN npm ci --ignore-scripts
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
-# GROQ_API_KEY is runtime-only — not consumed by next build
+# OPENROUTER_API_KEY is runtime-only — not consumed by next build
 
 RUN npm run build
 

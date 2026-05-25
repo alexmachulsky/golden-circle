@@ -46,11 +46,11 @@ services:
       TRUSTED_IP_HEADER: x-real-ip
       TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
       UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
-      GROQ_API_KEY_FILE: /run/secrets/groq_api_key
+      OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
       UPSTASH_REDIS_REST_TOKEN_FILE: /run/secrets/upstash_redis_rest_token
       TURNSTILE_SECRET_KEY_FILE: /run/secrets/turnstile_secret_key
     secrets:
-      - groq_api_key
+      - openrouter_api_key
       - upstash_redis_rest_token
       - turnstile_secret_key
     cap_drop:
@@ -65,8 +65,8 @@ services:
       start_period: 15s
 
 secrets:
-  groq_api_key:
-    file: ./secrets/groq_api_key.txt
+  openrouter_api_key:
+    file: ./secrets/openrouter_api_key.txt
   upstash_redis_rest_token:
     file: ./secrets/upstash_redis_rest_token.txt
   turnstile_secret_key:

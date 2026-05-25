@@ -8,7 +8,7 @@ Turn a rough business idea into a structured **WHY / HOW / WHAT** strategy using
 
 ## Features
 
-- **AI-powered analysis** — streams a structured breakdown (1 WHY, 4 HOWs, 3 WHATs, 1 positioning note) from Groq's `llama-3.3-70b-versatile`
+- **AI-powered analysis** — streams a structured breakdown (1 WHY, 4 HOWs, 3 WHATs, 1 positioning note) from OpenRouter's `openai/gpt-oss-120b`
 - **Interactive SVG visualization** — clickable concentric rings highlight each layer of the strategy
 - **Animated loading state** — Framer Motion entrance animations while the model is working
 - **Light / dark theme** — toggle persisted via cookie, applied before first paint to avoid flash
@@ -23,7 +23,7 @@ Turn a rough business idea into a structured **WHY / HOW / WHAT** strategy using
 - TypeScript
 - Tailwind CSS v4
 - Framer Motion
-- Groq SDK (`llama-3.3-70b-versatile`)
+- OpenAI SDK → OpenRouter (`openai/gpt-oss-120b`)
 
 ## Getting started
 
@@ -39,10 +39,10 @@ npm install
 cp .env.local.example .env.local
 ```
 
-3. Add your Groq API key to `.env.local` (get one at [console.groq.com](https://console.groq.com)):
+3. Add your OpenRouter API key to `.env.local` (get one at [openrouter.ai/keys](https://openrouter.ai/keys)):
 
 ```
-GROQ_API_KEY=your_api_key_here
+OPENROUTER_API_KEY=your_api_key_here
 ```
 
 4. Start the development server:
@@ -69,7 +69,7 @@ Open [http://localhost:7001](http://localhost:7001).
 
 | Name | Required | Description |
 | --- | --- | --- |
-| `GROQ_API_KEY` | Yes | API key used by `app/api/analyze/route.ts` to call Groq |
+| `OPENROUTER_API_KEY` | Yes | API key used by `app/api/analyze/route.ts` to call OpenRouter |
 | `TURNSTILE_SITE_KEY` | Production | Public site key used to render the verification challenge |
 | `TURNSTILE_SECRET_KEY` | Production | Secret key used server-side to verify submitted challenge tokens |
 | `UPSTASH_REDIS_REST_URL` | Production | Shared rate-limit backend URL |
@@ -83,11 +83,11 @@ Open [http://localhost:7001](http://localhost:7001).
 The default Compose stack runs a single loopback-only container for local use:
 
 ```bash
-cp .env.local.example .env.local   # add your GROQ_API_KEY
+cp .env.local.example .env.local   # add your OPENROUTER_API_KEY
 docker compose up -d --build
 ```
 
-It publishes only `127.0.0.1:7001`, reads the Groq key from your gitignored `.env.local`, and sets `DEPLOYMENT_MODE=local` (in-memory rate limiter, no reverse proxy). The loopback binding means a naive `up` is never network-exposed. It is **not** for public deployment.
+It publishes only `127.0.0.1:7001`, reads the OpenRouter key from your gitignored `.env.local`, and sets `DEPLOYMENT_MODE=local` (in-memory rate limiter, no reverse proxy). The loopback binding means a naive `up` is never network-exposed. It is **not** for public deployment.
 
 ### Hardened production
 
@@ -96,7 +96,7 @@ For the proxied, secrets-backed public deployment, use the explicit production f
 ```bash
 mkdir -p secrets
 # put the sensitive runtime values into:
-#   secrets/groq_api_key.txt
+#   secrets/openrouter_api_key.txt
 #   secrets/upstash_redis_rest_token.txt
 #   secrets/turnstile_secret_key.txt
 export UPSTASH_REDIS_REST_URL="https://<region>-<name>.upstash.io"
@@ -150,9 +150,9 @@ flowchart LR
   MW --> API[/api/analyze route/]
   API --> G1{6 request guards}
   G1 -->|pass| C[(response cache)]
-  C -->|miss| GROQ[Groq LLM<br/>streaming]
+  C -->|miss| LLM[OpenRouter LLM<br/>streaming]
   C -->|hit| U
-  GROQ -->|text/plain stream| U
+  LLM -->|text/plain stream| U
   U -->|hash share link| U
 ```
 
@@ -182,7 +182,7 @@ sequenceDiagram
 ```
 
 1. `components/InputForm.tsx` collects the business idea, shows example prompts, and enforces the 50–2000 character range.
-2. `app/api/analyze/route.ts` sanitizes input, enforces production abuse-protection prerequisites (`TRUSTED_IP_HEADER`, Upstash, Turnstile), checks for `GROQ_API_KEY`, and streams raw text from Groq back to the browser.
+2. `app/api/analyze/route.ts` sanitizes input, enforces production abuse-protection prerequisites (`TRUSTED_IP_HEADER`, Upstash, Turnstile), checks for `OPENROUTER_API_KEY`, and streams raw text from OpenRouter back to the browser.
 3. `components/GoldenCircleApp.tsx` reads the stream, handles the `__ERROR__` sentinel used for stream-time failures, cleans up common LLM JSON formatting mistakes, and parses the final response into the shared `AnalysisResult` type.
 4. `components/ResultSection.tsx` renders the final strategy breakdown and coordinates the interactive circle UI from `components/GoldenCircle.tsx`.
 

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readRuntimeValue } from "@/lib/runtime-env";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { parseAnalysis } from "@/lib/validate-analysis";
 
 /**
  * Identical-input cache for /api/analyze.
@@ -47,10 +48,19 @@ export function computeCacheKey(input: string): string {
 }
 
 function isCachableResponse(value: string): boolean {
-  // Don't cache error sentinels or anything that wouldn't parse as JSON.
+  // Never cache error sentinels.
   if (value.includes("__ERROR__")) return false;
-  const trimmed = value.trimStart();
-  return trimmed.startsWith("{");
+  // Only cache a response that actually parses into a valid AnalysisResult —
+  // the same check the client runs. A truncated stream (cut off mid-object) or
+  // a schema-violating response would otherwise be cached and re-served for the
+  // full TTL, turning a transient glitch into a sticky "Could not parse the AI
+  // response" error for every identical request.
+  try {
+    parseAnalysis(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface UpstashConfig {

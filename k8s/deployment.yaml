@@ -49,11 +49,11 @@ spec:
                 name: golden-circle-config
 
           env:
-            - name: GROQ_API_KEY
+            - name: OPENROUTER_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: golden-circle-secrets
-                  key: groq-api-key
+                  key: openrouter-api-key
             - name: UPSTASH_REDIS_REST_TOKEN
               valueFrom:
                 secretKeyRef:

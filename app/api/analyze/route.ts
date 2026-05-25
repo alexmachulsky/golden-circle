@@ -1,4 +1,4 @@
-import Groq from "groq-sdk";
+import OpenAI from "openai";
 import { SYSTEM_PROMPT, buildUserPrompt } from "@/lib/prompt";
 import { ALLOWED_ORIGINS, RATE_LIMIT_PER_MIN, TRUSTED_IP_HEADER } from "@/lib/config";
 import {
@@ -19,9 +19,24 @@ import {
 import { MIN_INPUT_LENGTH, MAX_INPUT_LENGTH } from "@/lib/constants";
 import { logger, newRequestId } from "@/lib/logger";
 
-const MODEL = "llama-3.3-70b-versatile";
+// ── AI provider ───────────────────────────────────────────────────────────
+// Groq (original provider) used the groq-sdk client + "llama-3.3-70b-versatile".
+// We now call OpenRouter, which is OpenAI-compatible, via the official `openai`
+// SDK pointed at OpenRouter's baseURL. (The groq-sdk hardcodes the path
+// "/openai/v1/chat/completions", which does not match OpenRouter's
+// "/api/v1/chat/completions", so it cannot be repointed by baseURL alone.)
+// The streaming chunk shape is identical, so the rest of the route is unchanged.
+// `:free` variant — same model weights, billed at $0 (subject to OpenRouter's
+// free-tier daily request cap). Drop the `:free` suffix to use the paid variant.
+const MODEL = "openai/gpt-oss-120b:free";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const BODY_LIMIT_BYTES = 8 * 1024; // 8 KB - well above the MAX_INPUT_LENGTH-char input maximum
-const UPSTREAM_TIMEOUT_MS = 30_000;
+// gpt-oss-120b is a large, comparatively slow model: a full Golden Circle
+// generation measures ~25-30s. The previous 30s budget (tuned for Groq's fast
+// Llama model) sat right at that edge, so slower generations were aborted
+// mid-stream and the client saw truncated JSON ("Could not parse the AI
+// response"). 60s gives comfortable headroom above the observed worst case.
+const UPSTREAM_TIMEOUT_MS = 60_000;
 
 function sanitizeInput(input: string): string {
   return input
@@ -107,14 +122,15 @@ export async function POST(req: Request) {
   // ── Guard 5: API key ────────────────────────────────────────────────────
   let apiKey: string | null;
   try {
-    apiKey = readRuntimeValue("GROQ_API_KEY");
+    // Groq (original): apiKey = readRuntimeValue("GROQ_API_KEY");
+    apiKey = readRuntimeValue("OPENROUTER_API_KEY");
   } catch (err) {
-    logger.error("failed to read GROQ_API_KEY", { reqId, err: err instanceof Error ? err.message : String(err) });
+    logger.error("failed to read OPENROUTER_API_KEY", { reqId, err: err instanceof Error ? err.message : String(err) });
     return Response.json({ error: "Service unavailable." }, { status: 500, headers: errorHeaders });
   }
 
   if (!apiKey) {
-    logger.error("GROQ_API_KEY is not set", { reqId });
+    logger.error("OPENROUTER_API_KEY is not set", { reqId });
     return Response.json({ error: "Service unavailable." }, { status: 500, headers: errorHeaders });
   }
 
@@ -156,7 +172,7 @@ export async function POST(req: Request) {
   try {
     cached = await getCachedAnalysis(cacheKey);
   } catch (err) {
-    // Cache failures must never block the request — fall through to Groq.
+    // Cache failures must never block the request — fall through to the LLM.
     logger.warn("cache lookup failed", { reqId, err: err instanceof Error ? err.message : String(err) });
   }
   if (cached && !cached.includes("__ERROR__")) {
@@ -165,8 +181,17 @@ export async function POST(req: Request) {
   }
   logger.info("analyze", { reqId, cache: "miss", status: 200 });
 
-  // ── Stream Groq response ────────────────────────────────────────────────
-  const groq = new Groq({ apiKey });
+  // ── Stream the OpenRouter (OpenAI-compatible) response ──────────────────
+  // Groq (original): const client = new Groq({ apiKey });
+  const client = new OpenAI({
+    apiKey,
+    baseURL: OPENROUTER_BASE_URL,
+    // Optional OpenRouter attribution headers (used for their dashboard ranking).
+    defaultHeaders: {
+      "HTTP-Referer": ALLOWED_ORIGINS[0] ?? "http://localhost:7001",
+      "X-Title": "Golden Circle Analyzer",
+    },
+  });
   const encoder = new TextEncoder();
 
   const readable = new ReadableStream({
@@ -178,13 +203,15 @@ export async function POST(req: Request) {
       req.signal.addEventListener('abort', () => ac.abort(), { once: true });
 
       try {
-        const stream = await groq.chat.completions.create(
+        const stream = await client.chat.completions.create(
           {
             model: MODEL,
             // The schema (WHY + 4 HOW + 3 WHAT + notes, each 1-2 sentences) needs
             // well over 1024 tokens; too low truncates the JSON mid-object and the
             // client's parseAnalysis then fails ("Could not parse the AI response").
-            max_tokens: 2048,
+            // gpt-oss-120b is markedly more verbose than the prior Llama model and
+            // may also spend tokens on reasoning, so we give generous headroom.
+            max_tokens: 4096,
             stream: true,
             messages: [
               { role: "system", content: SYSTEM_PROMPT },
@@ -252,7 +279,7 @@ export async function POST(req: Request) {
         controller.close();
 
         // Cache the assembled response so the next identical request skips
-        // Groq entirely. setCachedAnalysis filters error sentinels and
+        // the LLM entirely. setCachedAnalysis filters error sentinels and
         // non-JSON payloads itself.
         if (fullResponse) {
           setCachedAnalysis(cacheKey, fullResponse).catch((err) => {
