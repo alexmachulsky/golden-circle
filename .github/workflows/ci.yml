@@ -150,14 +150,21 @@ jobs:
             k8s/service.yaml k8s/ingress.yaml k8s/networkpolicy.yaml k8s/rbac.yaml
 
       - name: Score Kubernetes manifests (kube-score)
-        # container-image-tag / container-image-pull-policy are CRITICAL in
-        # kube-score but are deliberate Minikube-POC choices (see k8s/deployment.yaml).
+        # The deployment is scored together with its NetworkPolicy so the
+        # pod-networkpolicy test resolves. Ignored tests are deliberate
+        # Minikube-POC choices (see k8s/deployment.yaml):
+        #   container-image-tag / -pull-policy — image is side-loaded, not pulled
+        #   container-security-context-user-group-id — uid/gid 1001 is baked into
+        #     the Dockerfile's non-root user; overriding to >10000 would mismatch
+        #     the image's filesystem ownership
+        #   pod-probes-identical — the app exposes a single /api/health endpoint;
+        #     readiness and liveness use it with different timing, by design
         run: |
           docker run --rm -v "$PWD":/repo -w /repo \
-            zegl/kube-score:v1.20.0@sha256:2df34e708c78481f3f9de32f6b82060f3ec5c6694f51dc87e656668ecd881b68 \
+            zegl/kube-score:v1.20.0@sha256:ac4c43ad560af905d66f6bf57b0937c591332e6dbf2167c31193a13b4695ab97 \
             score \
-            --ignore-test container-image-tag,container-image-pull-policy \
-            k8s/deployment.yaml k8s/service.yaml
+            --ignore-test container-image-tag,container-image-pull-policy,container-security-context-user-group-id,pod-probes-identical \
+            k8s/deployment.yaml k8s/service.yaml k8s/networkpolicy.yaml
 
       - name: Checkov (IaC misconfig → SARIF)
         # soft-fail (.checkov.yaml): report, don't block. SARIF → Security tab.

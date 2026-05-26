@@ -49,7 +49,7 @@ spec:
         - protocol: TCP
           port: 53
 
-    # HTTPS to external APIs: Groq, Cloudflare Turnstile, Upstash Redis.
+    # HTTPS to external APIs: OpenRouter, Cloudflare Turnstile, Upstash Redis.
     # All three use CDN/anycast networks with large, frequently rotating CIDR
     # ranges that cannot be pinned reliably here. For production EKS, route
     # this egress through an egress gateway or Istio ServiceEntry so DNS-based
