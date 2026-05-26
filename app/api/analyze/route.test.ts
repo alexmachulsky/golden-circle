@@ -32,6 +32,36 @@ vi.mock('@/lib/config', () => ({
 import { POST } from "./route";
 import { _resetStoreForTesting } from "@/lib/rate-limit";
 import { _resetCacheForTesting } from "@/lib/analyze-cache";
+import { MAX_INPUT_LENGTH } from "@/lib/constants";
+
+// A schema-valid AnalysisResult JSON (passes parseAnalysis → eligible for caching).
+const VALID_RESULT = JSON.stringify({
+  why: { statement: "We believe in clarity.", depth_note: "True even after a product swap." },
+  how: [
+    { title: "H1", description: "D1", uniqueness: "U1" },
+    { title: "H2", description: "D2", uniqueness: "U2" },
+    { title: "H3", description: "D3", uniqueness: "U3" },
+    { title: "H4", description: "D4", uniqueness: "U4" },
+  ],
+  what: [
+    { title: "W1", description: "D1", why_connection: "Because we believe." },
+    { title: "W2", description: "D2", why_connection: "Because we believe." },
+    { title: "W3", description: "D3", why_connection: "Because we believe." },
+  ],
+  positioning_note: "Inside-out edge.",
+});
+
+function userPromptOf(call: number = 0): string {
+  return String(mockCreate.mock.calls[call]?.[0]?.messages?.[1]?.content ?? "");
+}
+
+function streamOnce(text: string) {
+  mockCreate.mockResolvedValue(
+    (async function* () {
+      yield { choices: [{ delta: { content: text } }] };
+    })(),
+  );
+}
 
 function setNodeEnv(value: string): void {
   (process.env as Record<string, string | undefined>)["NODE_ENV"] = value;
@@ -515,5 +545,86 @@ describe("Happy path", () => {
 
     const text = await collectStream(res);
     expect(text).toBe('{"why":{"statement":"Test"}}');
+  });
+});
+
+describe("Streaming edge cases", () => {
+  it("skips chunks with empty/undefined delta content", async () => {
+    mockCreate.mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: {} }] };               // no content
+        yield { choices: [{ delta: { content: undefined } }] };
+        yield { choices: [{ delta: { content: "{}" } }] };
+      })(),
+    );
+    const res = await POST(makeReq({}));
+    expect(res.status).toBe(200);
+    await expect(collectStream(res)).resolves.toBe("{}");
+  });
+
+  it("rejects a prompt-injected response that emits the error sentinel before the JSON", async () => {
+    streamOnce('__ERROR__leaked attacker text{"why":1}');
+    const res = await POST(makeReq({}));
+    const text = await collectStream(res);
+    expect(text).toBe("__ERROR__Analysis failed. Please try again.");
+    expect(text).not.toContain("leaked attacker text");
+  });
+
+  it("reports a timeout when the SDK aborts (APIUserAbortError)", async () => {
+    mockCreate.mockRejectedValue(Object.assign(new Error("Request was aborted."), { name: "APIUserAbortError" }));
+    const res = await POST(makeReq({}));
+    const text = await collectStream(res);
+    expect(text).toContain("timed out");
+  });
+});
+
+describe("Input sanitization", () => {
+  it("strips HTML tags from the business idea before prompting the model", async () => {
+    streamOnce("{}");
+    const idea = "Our mission <script>alert(1)</script> is to help people thrive every day for sure.";
+    await POST(makeReq({ body: { businessIdea: idea } }));
+    const prompt = userPromptOf();
+    expect(prompt).not.toContain("<script>");
+    expect(prompt).not.toContain("</script>");
+  });
+
+  it("truncates the business idea to MAX_INPUT_LENGTH", async () => {
+    streamOnce("{}");
+    await POST(makeReq({ body: { businessIdea: "Z".repeat(2500) } }));
+    const zCount = (userPromptOf().match(/Z/g) ?? []).length;
+    expect(zCount).toBe(MAX_INPUT_LENGTH);
+  });
+});
+
+describe("Refinement", () => {
+  it("rejects an unknown refinement key with 400", async () => {
+    const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, refinement: "nonsense" } }));
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "Invalid refinement." });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("injects the allowlisted refinement directive into the prompt", async () => {
+    streamOnce("{}");
+    const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, refinement: "why" } }));
+    expect(res.status).toBe(200);
+    await collectStream(res);
+    expect(userPromptOf()).toContain("sharpen and deepen the WHY");
+  });
+});
+
+describe("Response cache", () => {
+  it("serves an identical input from cache without calling the model twice", async () => {
+    streamOnce(VALID_RESULT);
+
+    const first = await POST(makeReq({}));
+    await expect(collectStream(first)).resolves.toBe(VALID_RESULT);
+    // Let the fire-and-forget cache write settle.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const second = await POST(makeReq({}));
+    await expect(collectStream(second)).resolves.toBe(VALID_RESULT);
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,9 +5,19 @@ import InputForm from '@/components/InputForm';
 import LoadingState from '@/components/LoadingState';
 import ResultSection from '@/components/ResultSection';
 import ThemeToggle from '@/components/ThemeToggle';
+import FrameworkIntro from '@/components/FrameworkIntro';
+import RecentAnalyses from '@/components/RecentAnalyses';
 import type { AnalysisResult } from '@/types';
+import type { RefinementKey } from '@/lib/prompt';
 import { parseAnalysis } from '@/lib/validate-analysis';
 import { decodeAnalysisFromHash } from '@/lib/share-link';
+import {
+  listAnalyses,
+  saveAnalysis,
+  removeAnalysis,
+  clearHistory,
+  type HistoryEntry,
+} from '@/lib/analysis-history';
 
 type AppState = 'input' | 'loading' | 'result';
 
@@ -15,25 +25,56 @@ interface GoldenCircleAppProps {
   turnstileSiteKey: string | null;
 }
 
+// Abort the stream if the server never finishes; the server's own upstream
+// timeout is 60s, so this is a slightly longer client backstop.
+const CLIENT_TIMEOUT_MS = 75_000;
+
+// Map an HTTP failure to user-facing copy. Falls back to the server-provided
+// message (already sanitized server-side) for anything unrecognized.
+function failureMessage(status: number, serverError?: string): string {
+  if (status === 429) return "You're sending requests too quickly. Please wait a minute and try again.";
+  if (status === 503) return 'The analyzer is temporarily unavailable. Please try again shortly.';
+  return serverError || 'Analysis failed. Please try again.';
+}
+
 export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppProps) {
   const [appState, setAppState] = useState<AppState>('input');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // The base idea behind the current result, so "refine" can re-run it.
+  const lastInputRef = useRef<string>('');
+
+  // Refine re-runs need a fresh request but have no new Turnstile token (the
+  // widget only lives on the input form, tokens are single-use). So refine is
+  // only offered when human-verification isn't required.
+  const refineEnabled = !turnstileSiteKey;
 
   // Abort any in-flight request on unmount
   useEffect(() => {
     return () => { abortControllerRef.current?.abort(); };
   }, []);
 
-  // Restore a shared analysis from the URL hash on first load
+  // Load history (client-only) on mount
+  useEffect(() => {
+    setHistory(listAnalyses());
+  }, []);
+
+  // Restore a shared analysis from the URL hash on first load (decode is async
+  // because the payload may be gzip-compressed).
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const restored = decodeAnalysisFromHash(window.location.hash);
-    if (restored) {
-      setResult(restored);
-      setAppState('result');
-    }
+    let cancelled = false;
+    decodeAnalysisFromHash(window.location.hash).then((restored) => {
+      if (!cancelled && restored) {
+        setResult(restored);
+        setAppState('result');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Guard: if result state is reached with no data, reset to input
@@ -44,67 +85,115 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
     }
   }, [appState, result]);
 
-  const handleSubmit = useCallback(async (input: string, turnstileToken: string | null = null) => {
-    // Cancel any previous in-flight request
-    abortControllerRef.current?.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+  const handleSubmit = useCallback(
+    async (input: string, turnstileToken: string | null = null, refinement: RefinementKey | null = null) => {
+      // Cancel any previous in-flight request
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
-    setError(null);
-    setAppState('loading');
+      const trimmed = input.trim();
+      lastInputRef.current = trimmed;
 
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessIdea: input.trim(), turnstileToken }),
-        signal: controller.signal,
-      });
+      // Client-side backstop: if the stream never completes, abort and tell the
+      // user it timed out (distinguished from user/unmount aborts via the flag).
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, CLIENT_TIMEOUT_MS);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Analysis failed' }));
-        throw new Error(errorData.error || 'Analysis failed');
-      }
+      setError(null);
+      setAppState('loading');
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response stream');
-
-      const decoder = new TextDecoder();
-      let fullText = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fullText += decoder.decode(value, { stream: true });
-        if (fullText.length > 64_000) {
-          throw new Error("Response too large. Please try again.");
-        }
-      }
-      // Flush any remaining buffered bytes from the decoder
-      fullText += decoder.decode();
-
-      // Check for server-side error signal. Cap and strip the suffix so a
-      // prompt-injected response can never surface arbitrary text as a UI error.
-      if (fullText.startsWith('__ERROR__')) {
-        const raw = fullText.slice(9, 300).replace(/[^\x20-\x7E\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF]/g, '');
-        throw new Error(raw || 'Analysis failed. Please try again.');
-      }
-
-      let parsed;
       try {
-        parsed = parseAnalysis(fullText);
-      } catch {
-        throw new Error('Could not parse the AI response. Please try again.');
-      }
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessIdea: trimmed, turnstileToken, refinement }),
+          signal: controller.signal,
+        });
 
-      setResult(parsed);
-      setAppState('result');
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-      const message = err instanceof Error ? err.message : 'Something went wrong';
-      setError(message);
-      setAppState('input');
-    }
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(failureMessage(response.status, errorData.error));
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No response stream');
+
+        const decoder = new TextDecoder();
+        let fullText = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fullText += decoder.decode(value, { stream: true });
+          if (fullText.length > 64_000) {
+            throw new Error("Response too large. Please try again.");
+          }
+        }
+        // Flush any remaining buffered bytes from the decoder
+        fullText += decoder.decode();
+
+        // Check for server-side error signal. Cap and strip the suffix so a
+        // prompt-injected response can never surface arbitrary text as a UI error.
+        if (fullText.startsWith('__ERROR__')) {
+          const raw = fullText.slice(9, 300).replace(/[^\x20-\x7E\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF]/g, '');
+          throw new Error(raw || 'Analysis failed. Please try again.');
+        }
+
+        let parsed;
+        try {
+          parsed = parseAnalysis(fullText);
+        } catch {
+          throw new Error('Could not parse the AI response. Please try again.');
+        }
+
+        setResult(parsed);
+        setAppState('result');
+        setHistory(saveAnalysis(trimmed, parsed));
+      } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          // Timeout aborts surface a message; user/unmount aborts stay silent.
+          if (timedOut) {
+            setError('The request timed out. Please try again.');
+            setAppState('input');
+          }
+          return;
+        }
+        const message = err instanceof Error ? err.message : 'Something went wrong';
+        setError(message);
+        setAppState('input');
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    },
+    [],
+  );
+
+  const handleRefine = useCallback(
+    (refinement: RefinementKey) => {
+      if (!lastInputRef.current) return;
+      handleSubmit(lastInputRef.current, null, refinement);
+    },
+    [handleSubmit],
+  );
+
+  const handleRestore = useCallback((entry: HistoryEntry) => {
+    lastInputRef.current = entry.input;
+    setResult(entry.result);
+    setError(null);
+    setAppState('result');
+  }, []);
+
+  const handleRemove = useCallback((id: string) => {
+    setHistory(removeAnalysis(id));
+  }, []);
+
+  const handleClear = useCallback(() => {
+    clearHistory();
+    setHistory([]);
   }, []);
 
   const handleReset = useCallback(() => {
@@ -132,16 +221,29 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
 
       <div className="relative z-10 flex-1 flex flex-col items-center justify-start">
         {appState === 'input' && (
-          <InputForm
-            onSubmit={handleSubmit}
-            loading={false}
-            error={error}
-            turnstileSiteKey={turnstileSiteKey}
-          />
+          <>
+            <FrameworkIntro />
+            <InputForm
+              onSubmit={handleSubmit}
+              loading={false}
+              error={error}
+              turnstileSiteKey={turnstileSiteKey}
+            />
+            <RecentAnalyses
+              entries={history}
+              onRestore={handleRestore}
+              onRemove={handleRemove}
+              onClear={handleClear}
+            />
+          </>
         )}
         {appState === 'loading' && <LoadingState />}
         {appState === 'result' && result && (
-          <ResultSection result={result} onReset={handleReset} />
+          <ResultSection
+            result={result}
+            onReset={handleReset}
+            onRefine={refineEnabled ? handleRefine : undefined}
+          />
         )}
       </div>
     </main>

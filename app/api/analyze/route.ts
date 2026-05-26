@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { SYSTEM_PROMPT, buildUserPrompt } from "@/lib/prompt";
+import { SYSTEM_PROMPT, buildUserPrompt, REFINEMENTS, type RefinementKey } from "@/lib/prompt";
 import { ALLOWED_ORIGINS, RATE_LIMIT_PER_MIN, TRUSTED_IP_HEADER } from "@/lib/config";
 import {
   HttpError,
@@ -150,6 +150,15 @@ export async function POST(req: Request) {
 
   const sanitized = sanitizeInput(rawBody.businessIdea);
 
+  // ── Optional refinement focus (allowlisted key, never free text) ────────
+  let refinement: RefinementKey | null = null;
+  if (rawBody.refinement != null) {
+    if (typeof rawBody.refinement !== "string" || !(rawBody.refinement in REFINEMENTS)) {
+      return Response.json({ error: "Invalid refinement." }, { status: 400, headers: errorHeaders });
+    }
+    refinement = rawBody.refinement as RefinementKey;
+  }
+
   // ── Guard 6: Human verification ────────────────────────────────────────
   if (rawBody.turnstileToken != null && typeof rawBody.turnstileToken !== "string") {
     return Response.json({ error: "turnstileToken must be a string." }, { status: 400, headers: errorHeaders });
@@ -167,7 +176,9 @@ export async function POST(req: Request) {
   }
 
   // ── Cache lookup: identical sanitized input within the TTL ──────────────
-  const cacheKey = computeCacheKey(sanitized);
+  // A refinement varies the prompt, so it must vary the cache key too —
+  // otherwise a refine request would return the un-refined cached result.
+  const cacheKey = computeCacheKey(refinement ? `${sanitized}::refine=${refinement}` : sanitized);
   let cached: string | null = null;
   try {
     cached = await getCachedAnalysis(cacheKey);
@@ -215,7 +226,7 @@ export async function POST(req: Request) {
             stream: true,
             messages: [
               { role: "system", content: SYSTEM_PROMPT },
-              { role: "user", content: buildUserPrompt(sanitized) },
+              { role: "user", content: buildUserPrompt(sanitized, refinement) },
             ],
           },
           { signal: ac.signal },
@@ -238,7 +249,10 @@ export async function POST(req: Request) {
             if (!checkedPrefix) {
               accumulated += text;
               const braceIndex = accumulated.indexOf("{");
-              const ready = braceIndex !== -1 || accumulated.length >= 64;
+              // Wait for the JSON to start, or for enough bytes that a sentinel
+              // beginning within the first 64 can't be split across the cutoff
+              // (the sentinel itself is 9 chars).
+              const ready = braceIndex !== -1 || accumulated.length >= 64 + "__ERROR__".length;
               if (ready) {
                 checkedPrefix = true;
                 // The preamble is everything before the first '{', or the
@@ -288,9 +302,11 @@ export async function POST(req: Request) {
         }
       } catch (err: unknown) {
         logger.error("upstream error", { reqId, err: err instanceof Error ? err.message : String(err) });
+        // The OpenAI SDK raises APIUserAbortError (not AbortError) when the
+        // signal fires, so match on a broader set of names/messages.
         const isTimeout =
           err instanceof Error &&
-          (err.name === "AbortError" || err.message.toLowerCase().includes("abort"));
+          (/abort|timeout/i.test(err.name) || /abort|timed?\s*out/i.test(err.message));
         const clientMsg = isTimeout
           ? "__ERROR__Request timed out. Please try again."
           : "__ERROR__Analysis failed. Please try again.";

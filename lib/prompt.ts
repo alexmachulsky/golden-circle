@@ -68,8 +68,20 @@ Respond ONLY with a valid JSON object. No preamble, no explanation, no markdown 
 
 Provide exactly 4 HOW items and exactly 3 WHAT items. The output must be valid JSON parseable by JSON.parse(). Do not include any text before or after the JSON object.`;
 
-export function buildUserPrompt(businessIdea: string): string {
-  return `<business_idea>
+// Refinement directives for the "refine with focus" feature. The client sends
+// only one of these KEYS (never free text), so the user can steer a re-run
+// without opening a prompt-injection vector — the directive text is fixed here.
+export const REFINEMENTS = {
+  why: "Refinement focus: sharpen and deepen the WHY — make the core belief more specific, emotionally resonant, and distinctive, while still passing the product-swap test.",
+  how: "Refinement focus: make each HOW item more concrete and ownable — add specifics (named practices, commitments, or processes) that a generic competitor could not credibly claim.",
+  bolder:
+    "Refinement focus: take a bolder, more contrarian strategic stance across all three layers, while staying truthful to the business idea.",
+} as const;
+
+export type RefinementKey = keyof typeof REFINEMENTS;
+
+export function buildUserPrompt(businessIdea: string, refinement?: RefinementKey | null): string {
+  const base = `<business_idea>
 ${businessIdea}
 </business_idea>
 
@@ -77,6 +89,11 @@ Analyze this business idea and produce a rigorous Golden Circle breakdown. Remem
 - The WHY must be a genuine belief statement that passes the product swap test — not a functional description
 - Each HOW must be specific enough that only this company could own it
 - Each WHAT must be framed as tangible proof of the WHY belief`;
+
+  if (refinement && REFINEMENTS[refinement]) {
+    return `${base}\n\nThis is a refinement of a previous analysis. ${REFINEMENTS[refinement]}`;
+  }
+  return base;
 }
 
 export const EXAMPLES = [

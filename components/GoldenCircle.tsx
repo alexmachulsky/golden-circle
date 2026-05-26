@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import type { ActiveSection } from '@/types';
 
 interface GoldenCircleProps {
@@ -32,6 +32,8 @@ export default function GoldenCircle({
   onSectionClick,
   animate = false,
 }: GoldenCircleProps) {
+  const reduceMotion = useReducedMotion();
+  const shouldAnimate = animate && !reduceMotion;
   const cx = 160, cy = 160;
   const WHY_R = 52;
   const HOW_R = 100;
@@ -51,9 +53,9 @@ export default function GoldenCircle({
   };
 
   const sharedMotionProps = (section: NonNullable<ActiveSection>, delay: number) => ({
-    variants: animate ? ringVariants : undefined,
-    initial: animate ? ('hidden' as const) : undefined,
-    animate: animate ? ('visible' as const) : undefined,
+    variants: shouldAnimate ? ringVariants : undefined,
+    initial: shouldAnimate ? ('hidden' as const) : undefined,
+    animate: shouldAnimate ? ('visible' as const) : undefined,
     custom: delay,
     onClick: () => onSectionClick(section),
     onKeyDown: (e: React.KeyboardEvent) => {
@@ -64,7 +66,9 @@ export default function GoldenCircle({
     },
     tabIndex: 0,
     role: 'button' as const,
+    className: 'gc-ring',
     'aria-label': `${section.toUpperCase()} section`,
+    'aria-pressed': activeSection === section,
   });
 
   return (

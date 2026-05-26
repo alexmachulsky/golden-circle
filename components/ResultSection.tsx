@@ -1,15 +1,25 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import GoldenCircle from '@/components/GoldenCircle';
 import type { AnalysisResult, ActiveSection } from '@/types';
-import { buildShareUrl } from '@/lib/share-link';
+import type { RefinementKey } from '@/lib/prompt';
+import { tryBuildShareUrl } from '@/lib/share-link';
+import { toMarkdown, toJson, downloadFile } from '@/lib/export';
 
 interface ResultSectionProps {
   result: AnalysisResult;
   onReset: () => void;
+  /** When provided, render refinement chips that re-run the analysis with a focus. */
+  onRefine?: (refinement: RefinementKey) => void;
 }
+
+const REFINE_CHIPS: { key: RefinementKey; label: string }[] = [
+  { key: 'why', label: 'Sharper WHY' },
+  { key: 'how', label: 'More specific HOW' },
+  { key: 'bolder', label: 'Bolder stance' },
+];
 
 const cardVariants = {
   hidden: { opacity: 0, x: -20 },
@@ -58,10 +68,11 @@ function Tooltip({ text }: { text: string }) {
   );
 }
 
-export default function ResultSection({ result, onReset }: ResultSectionProps) {
+export default function ResultSection({ result, onReset, onRefine }: ResultSectionProps) {
+  const reduceMotion = useReducedMotion();
   const [activeSection, setActiveSection] = useState<ActiveSection>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
-  const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed' | 'toolarge'>('idle');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -106,17 +117,31 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
     window.print();
   }, []);
 
+  const handleExportMarkdown = useCallback(() => {
+    downloadFile('golden-circle.md', toMarkdown(result), 'text/markdown;charset=utf-8');
+  }, [result]);
+
+  const handleExportJson = useCallback(() => {
+    downloadFile('golden-circle.json', toJson(result), 'application/json;charset=utf-8');
+  }, [result]);
+
   const handleShare = useCallback(async () => {
     try {
-      const url = buildShareUrl(result, window.location.origin, window.location.pathname);
-      await navigator.clipboard.writeText(url);
-      window.history.replaceState(null, '', url);
-      setShareState('copied');
+      const url = await tryBuildShareUrl(result, window.location.origin, window.location.pathname);
+      if (!url) {
+        // Encoded result exceeds the URL-hash budget — tell the user instead of
+        // copying a link that would silently fail to restore.
+        setShareState('toolarge');
+      } else {
+        await navigator.clipboard.writeText(url);
+        window.history.replaceState(null, '', url);
+        setShareState('copied');
+      }
     } catch {
       setShareState('failed');
     }
     if (shareTimerRef.current) clearTimeout(shareTimerRef.current);
-    shareTimerRef.current = setTimeout(() => setShareState('idle'), 2000);
+    shareTimerRef.current = setTimeout(() => setShareState('idle'), 3000);
   }, [result]);
 
   return (
@@ -145,7 +170,7 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
           Analyze another
         </button>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
           <button
             onClick={handleCopy}
             className="flex items-center gap-2 px-4 py-2 rounded-lg border border-navy-700 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 text-xs transition-all"
@@ -173,7 +198,13 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
                 strokeLinejoin="round"
               />
             </svg>
-            {shareState === 'copied' ? 'Link copied!' : shareState === 'failed' ? 'Share failed' : 'Share'}
+            {shareState === 'copied'
+              ? 'Link copied!'
+              : shareState === 'failed'
+                ? 'Share failed'
+                : shareState === 'toolarge'
+                  ? 'Too large to link'
+                  : 'Share'}
           </button>
           <button
             onClick={handlePrint}
@@ -193,9 +224,25 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
         </div>
       </div>
 
+      {/* Refinement chips — re-run the analysis with a focus (when enabled) */}
+      {onRefine && (
+        <div className="mb-8 flex items-center gap-2 flex-wrap no-print">
+          <span className="text-slate-500 text-xs">Refine:</span>
+          {REFINE_CHIPS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => onRefine(key)}
+              className="text-xs px-3 py-1.5 rounded-lg border border-navy-700/80 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 transition-all"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Positioning note banner */}
       <motion.div
-        initial={{ opacity: 0, y: -10 }}
+        initial={reduceMotion ? false : { opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="mb-10 p-4 rounded-xl bg-gold-500/5 border border-gold-500/15 text-gold-300/80 text-sm text-center leading-relaxed"
@@ -257,7 +304,7 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
           {/* WHY Card */}
           <motion.div
             variants={cardVariants}
-            initial="hidden"
+            initial={reduceMotion ? false : 'hidden'}
             animate="visible"
             custom={0.2}
             id="why-card"
@@ -289,7 +336,7 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
           {/* HOW Card */}
           <motion.div
             variants={cardVariants}
-            initial="hidden"
+            initial={reduceMotion ? false : 'hidden'}
             animate="visible"
             custom={0.5}
             id="how-card"
@@ -336,7 +383,7 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
           {/* WHAT Card */}
           <motion.div
             variants={cardVariants}
-            initial="hidden"
+            initial={reduceMotion ? false : 'hidden'}
             animate="visible"
             custom={0.8}
             id="what-card"
@@ -373,8 +420,9 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
         </div>
       </div>
 
-      {/* Bottom actions */}
-      <div className="mt-10 pt-8 border-t border-navy-800 flex items-center justify-center gap-4 flex-wrap">
+      {/* Bottom actions — primary CTA plus exports (Copy/Share/Save live in the
+          top bar). Export downloads the result as a file for downstream use. */}
+      <div className="mt-10 pt-8 border-t border-navy-800 flex items-center justify-center gap-3 flex-wrap">
         <button
           onClick={onReset}
           className="px-6 py-2.5 rounded-xl bg-gold-500 text-navy-950 text-sm font-bold hover:bg-gold-400 active:scale-95 transition-all duration-150"
@@ -382,22 +430,16 @@ export default function ResultSection({ result, onReset }: ResultSectionProps) {
           Analyze Another Idea
         </button>
         <button
-          onClick={handleCopy}
+          onClick={handleExportMarkdown}
           className="px-6 py-2.5 rounded-xl border border-navy-700 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 text-sm transition-all"
         >
-          {copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? 'Copy failed' : 'Copy to Clipboard'}
+          Export Markdown
         </button>
         <button
-          onClick={handleShare}
+          onClick={handleExportJson}
           className="px-6 py-2.5 rounded-xl border border-navy-700 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 text-sm transition-all"
         >
-          {shareState === 'copied' ? 'Link copied!' : shareState === 'failed' ? 'Share failed' : 'Copy share link'}
-        </button>
-        <button
-          onClick={handlePrint}
-          className="px-6 py-2.5 rounded-xl border border-navy-700 text-slate-400 hover:border-gold-500/30 hover:text-gold-400 text-sm transition-all"
-        >
-          Save as PDF
+          Export JSON
         </button>
       </div>
     </div>

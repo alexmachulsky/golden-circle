@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisResult } from "@/types";
 import {
-  buildShareUrl,
+  tryBuildShareUrl,
   decodeAnalysisFromHash,
   encodeAnalysisForUrl,
 } from "./share-link";
@@ -23,38 +23,72 @@ const sample: AnalysisResult = {
 };
 
 describe("share-link", () => {
-  it("round-trips an AnalysisResult through the hash encoding", () => {
-    const encoded = encodeAnalysisForUrl(sample);
-    const decoded = decodeAnalysisFromHash(`#data=${encoded}`);
+  it("round-trips an AnalysisResult through the hash encoding", async () => {
+    const encoded = await encodeAnalysisForUrl(sample);
+    const decoded = await decodeAnalysisFromHash(`#data=${encoded}`);
     expect(decoded).toEqual(sample);
   });
 
-  it("produces a base64url string with no padding", () => {
-    const encoded = encodeAnalysisForUrl(sample);
-    expect(encoded).not.toMatch(/[+/=]/);
+  it("uses the compressed (v1.) scheme when CompressionStream is available", async () => {
+    const encoded = await encodeAnalysisForUrl(sample);
+    expect(encoded.startsWith("v1.")).toBe(true);
   });
 
-  it("buildShareUrl composes origin + pathname + hash", () => {
-    const url = buildShareUrl(sample, "https://example.com", "/golden");
-    expect(url.startsWith("https://example.com/golden#data=")).toBe(true);
+  it("produces a URL-safe payload (no +, /, or = padding)", async () => {
+    const encoded = await encodeAnalysisForUrl(sample);
+    // Strip the scheme marker before checking the base64url body.
+    const body = encoded.replace(/^v1\./, "");
+    expect(body).not.toMatch(/[+/=]/);
   });
 
-  it("returns null when the hash has no data prefix", () => {
-    expect(decodeAnalysisFromHash("")).toBeNull();
-    expect(decodeAnalysisFromHash("#other=abc")).toBeNull();
+  it("still decodes a legacy uncompressed (raw base64url) payload", async () => {
+    // Simulate a link produced before compression existed: base64url(JSON).
+    const json = JSON.stringify(sample);
+    const b64url = Buffer.from(json, "utf-8")
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const decoded = await decodeAnalysisFromHash(`#data=${b64url}`);
+    expect(decoded).toEqual(sample);
   });
 
-  it("returns null when the encoded payload exceeds the size cap", () => {
+  it("tryBuildShareUrl composes origin + pathname + hash", async () => {
+    const url = await tryBuildShareUrl(sample, "https://example.com", "/golden");
+    expect(url).not.toBeNull();
+    expect(url!.startsWith("https://example.com/golden#data=")).toBe(true);
+  });
+
+  it("tryBuildShareUrl returns null when the encoded payload exceeds the budget", async () => {
+    // A result whose fields are large enough that even gzip can't fit 8 KB.
+    const huge: AnalysisResult = {
+      ...sample,
+      // High-entropy random text so gzip can't shrink it under the 8 KB budget.
+      positioning_note: Array.from({ length: 30000 }, () =>
+        String.fromCharCode(33 + Math.floor(Math.random() * 90)),
+      ).join(""),
+    };
+    const url = await tryBuildShareUrl(huge, "https://example.com", "/x");
+    expect(url).toBeNull();
+  });
+
+  it("returns null when the hash has no data prefix", async () => {
+    expect(await decodeAnalysisFromHash("")).toBeNull();
+    expect(await decodeAnalysisFromHash("#other=abc")).toBeNull();
+  });
+
+  it("returns null when the payload exceeds the size cap", async () => {
     const big = "a".repeat(9 * 1024);
-    expect(decodeAnalysisFromHash(`#data=${big}`)).toBeNull();
+    expect(await decodeAnalysisFromHash(`#data=${big}`)).toBeNull();
   });
 
-  it("returns null on malformed base64", () => {
-    expect(decodeAnalysisFromHash("#data=!!!not-base64!!!")).toBeNull();
+  it("returns null on malformed payloads", async () => {
+    expect(await decodeAnalysisFromHash("#data=!!!not-base64!!!")).toBeNull();
+    expect(await decodeAnalysisFromHash("#data=v1.!!!not-gzip!!!")).toBeNull();
   });
 
-  it("returns null when the decoded payload fails schema validation", () => {
-    const bad = encodeAnalysisForUrl({ ...sample, how: sample.how.slice(0, 2) } as AnalysisResult);
-    expect(decodeAnalysisFromHash(`#data=${bad}`)).toBeNull();
+  it("returns null when the decoded payload fails schema validation", async () => {
+    const bad = await encodeAnalysisForUrl({ ...sample, how: sample.how.slice(0, 2) } as AnalysisResult);
+    expect(await decodeAnalysisFromHash(`#data=${bad}`)).toBeNull();
   });
 });

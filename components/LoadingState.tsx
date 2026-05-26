@@ -1,6 +1,7 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 
 const MESSAGES = [
   'Analyzing your business purpose…',
@@ -12,10 +13,28 @@ const MESSAGES = [
 ];
 
 export default function LoadingState() {
+  const reduceMotion = useReducedMotion();
   const cx = 120, cy = 120;
   const WHY_R = 36;
   const HOW_R = 68;
   const WHAT_R = 100;
+
+  // Cycle the status message and track elapsed time so a long wait reads as
+  // intentional progress rather than a stall.
+  const [messageIndex, setMessageIndex] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const msgTimer = setInterval(
+      () => setMessageIndex((i) => (i + 1) % MESSAGES.length),
+      3000,
+    );
+    const tick = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => {
+      clearInterval(msgTimer);
+      clearInterval(tick);
+    };
+  }, []);
 
   function circlePath(r: number, cw = true): string {
     const sw = cw ? 1 : 0;
@@ -29,7 +48,7 @@ export default function LoadingState() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-10">
       <div className="relative">
-        <svg width="240" height="240" viewBox="0 0 240 240">
+        <svg width="240" height="240" viewBox="0 0 240 240" role="img" aria-label="Generating your Golden Circle analysis">
           {/* WHAT ring */}
           <motion.path
             d={annulusPath(HOW_R, WHAT_R)}
@@ -38,8 +57,8 @@ export default function LoadingState() {
             stroke="rgba(245,158,11,0.3)"
             strokeWidth="0.5"
             style={{ transformOrigin: `${cx}px ${cy}px` }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}
+            animate={reduceMotion ? undefined : { rotate: 360 }}
+            transition={reduceMotion ? undefined : { duration: 20, repeat: Infinity, ease: 'linear' }}
           />
           {/* HOW ring */}
           <motion.path
@@ -49,8 +68,8 @@ export default function LoadingState() {
             stroke="rgba(245,158,11,0.4)"
             strokeWidth="0.5"
             style={{ transformOrigin: `${cx}px ${cy}px` }}
-            animate={{ rotate: -360 }}
-            transition={{ duration: 14, repeat: Infinity, ease: 'linear' }}
+            animate={reduceMotion ? undefined : { rotate: -360 }}
+            transition={reduceMotion ? undefined : { duration: 14, repeat: Infinity, ease: 'linear' }}
           />
           {/* WHY circle */}
           <motion.circle
@@ -58,8 +77,8 @@ export default function LoadingState() {
             cy={cy}
             r={WHY_R}
             fill="rgba(245,158,11,0.7)"
-            animate={{ scale: [1, 1.06, 1] }}
-            transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+            animate={reduceMotion ? undefined : { scale: [1, 1.06, 1] }}
+            transition={reduceMotion ? undefined : { duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
             style={{
               transformOrigin: `${cx}px ${cy}px`,
               filter: 'drop-shadow(0 0 14px rgba(245,158,11,0.6))',
@@ -81,35 +100,15 @@ export default function LoadingState() {
         </svg>
       </div>
 
-      {/* Cycling message */}
-      <div className="text-center">
-        <motion.p
-          key={0}
-          className="text-gold-400 text-base font-medium"
-          animate={{ opacity: [0, 1, 1, 0] }}
-          transition={{ duration: 3, repeat: Infinity, times: [0, 0.1, 0.8, 1] }}
-        >
-          {MESSAGES[0]}
-        </motion.p>
-        {MESSAGES.slice(1).map((msg, i) => (
-          <motion.p
-            key={i + 1}
-            className="text-gold-400 text-base font-medium absolute"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: [0, 1, 1, 0] }}
-            transition={{
-              duration: 3,
-              repeat: Infinity,
-              delay: (i + 1) * 3,
-              times: [0, 0.1, 0.8, 1],
-            }}
-          >
-            {msg}
-          </motion.p>
-        ))}
+      {/* Cycling status message — a single live region so screen readers
+          announce each step (works regardless of motion preference). */}
+      <div className="text-center" role="status" aria-live="polite">
+        <p className="text-gold-400 text-base font-medium">{MESSAGES[messageIndex]}</p>
       </div>
 
-      <p className="text-slate-500 text-sm">This takes about 10–20 seconds</p>
+      <p className="text-slate-500 text-sm">
+        {elapsed}s elapsed · usually 25–35 seconds
+      </p>
     </div>
   );
 }
