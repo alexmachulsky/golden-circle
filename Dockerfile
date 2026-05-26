@@ -6,7 +6,7 @@
 # node:20-alpine — pinned to a specific digest for supply-chain integrity.
 # To update: run `docker pull node:20-alpine` and replace the digest below,
 # or let Dependabot/Renovate open a PR when a new digest is published.
-FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS build
+FROM node:26-alpine@sha256:7c6af15abe4e3de859690e7db171d0d711bf37d27528eddfe625b2fe89e097f8 AS build
 
 # Required for Next.js SWC binaries on Alpine (glibc compat shim)
 RUN apk add --no-cache libc6-compat
@@ -32,7 +32,7 @@ RUN npm run build
 #   Uses only the standalone bundle — no source, no dev deps.
 #   Runs as a non-root user to follow least-privilege principle.
 # ────────────────────────────────────────────────────────────────
-FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS runner
+FROM node:26-alpine@sha256:7c6af15abe4e3de859690e7db171d0d711bf37d27528eddfe625b2fe89e097f8 AS runner
 
 WORKDIR /app
 
