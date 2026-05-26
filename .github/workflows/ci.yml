@@ -168,16 +168,18 @@ jobs:
 
       - name: Checkov (IaC misconfig → SARIF)
         # soft-fail (.checkov.yaml): report, don't block. SARIF → Security tab.
+        # Write SARIF to a file (not stdout): checkov prints a banner to stdout
+        # that would otherwise corrupt the JSON. Produces checkov-out/results_sarif.sarif.
         run: |
           docker run --rm -v "$PWD":/repo -w /repo --entrypoint checkov \
             ghcr.io/bridgecrewio/checkov:3.2.334@sha256:888060aaaa6f4499fd3b00a1a03185ed760937b049d438fa6e00b3203a5d613e \
-            --config-file .checkov.yaml -o sarif > checkov.sarif
+            --config-file .checkov.yaml -o sarif --output-file-path /repo/checkov-out
 
       - name: Upload Checkov SARIF to GitHub Security tab
-        if: ${{ always() && hashFiles('checkov.sarif') != '' }}
+        if: ${{ always() && hashFiles('checkov-out/results_sarif.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225  # v4
         with:
-          sarif_file: checkov.sarif
+          sarif_file: checkov-out/results_sarif.sarif
           category: checkov
 
   # ── 2d. POLICY-AS-CODE (Kyverno) ───────────────────────────────────────────
