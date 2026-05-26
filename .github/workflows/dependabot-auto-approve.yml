@@ -1,0 +1,41 @@
+name: Dependabot auto-approve
+
+# Auto-approves Dependabot PRs that are patch or minor version bumps only.
+# Major-version bumps are left unapproved for a human, since they can carry
+# breaking changes. This approves; it does not enable auto-merge — branch
+# protection / the human merge click still applies.
+#
+# Requires the repo setting:
+#   Settings → Actions → General → "Allow GitHub Actions to create and
+#   approve pull requests" (enabled).
+
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  auto-approve:
+    name: Approve patch/minor
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98  # v3.1.0
+
+      - name: Approve patch and minor updates
+        if: contains(fromJSON('["version-update:semver-patch","version-update:semver-minor"]'), steps.meta.outputs.update-type)
+        # All dynamic values are passed through env (never interpolated directly
+        # into the shell) to avoid script injection.
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          DEPS: ${{ steps.meta.outputs.dependency-names }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr review --approve "$PR_URL" \
+            --body "Auto-approved: Dependabot $UPDATE_TYPE update for $DEPS. Major-version bumps still require a human review."
