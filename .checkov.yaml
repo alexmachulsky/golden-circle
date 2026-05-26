@@ -17,6 +17,10 @@ skip-path:
   - .next
   - .git
   - .worktrees
+  # Kyverno policy unit-test fixtures, not deployable manifests. bad-pod is
+  # intentionally non-compliant (it's the negative test case), so scanning it
+  # produces expected-by-design failures.
+  - k8s/policies/tests
 compact: true
 quiet: true
 # Soft-fail: surface findings without blocking. The accepted findings below are
@@ -31,9 +35,6 @@ skip-check:
   # CKV_K8S_15 — imagePullPolicy should be Always.
   #   'Never' is required for the Minikube side-loaded image.
   - CKV_K8S_15
-  # CKV_K8S_22 — readOnlyRootFilesystem should be true.
-  #   Next.js standalone writes to a tmp dir at runtime; documented in deployment.yaml.
-  - CKV_K8S_22
   # CKV_K8S_35 — prefer secrets as files over environment variables.
   #   Secrets are sourced from a Kubernetes Secret via secretKeyRef; the app
   #   also supports *_FILE for Docker-secret deployments (lib/runtime-env.ts).
@@ -41,3 +42,8 @@ skip-check:
   # CKV_K8S_40 — run with a high UID (>10000).
   #   uid 1001 is fixed to match the non-root user baked into the Dockerfile.
   - CKV_K8S_40
+  # CKV_K8S_153 — nginx Ingress configuration-snippet annotation (CVE-2021-25742).
+  #   The snippet is static and author-controlled (sets X-Real-IP / X-Forwarded-For
+  #   for per-IP rate limiting). The CVE is a multi-tenant snippet-injection
+  #   escalation; accepted for this single-tenant POC.
+  - CKV_K8S_153
