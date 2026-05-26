@@ -28,6 +28,8 @@ spec:
         runAsUser: 1001
         runAsGroup: 1001
         fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
 
       containers:
         - name: golden-circle
@@ -49,11 +51,11 @@ spec:
                 name: golden-circle-config
 
           env:
-            - name: GROQ_API_KEY
+            - name: OPENROUTER_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: golden-circle-secrets
-                  key: groq-api-key
+                  key: openrouter-api-key
             - name: UPSTASH_REDIS_REST_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -69,9 +71,11 @@ spec:
             requests:
               cpu: "250m"
               memory: "256Mi"
+              ephemeral-storage: "256Mi"
             limits:
               cpu: "500m"
               memory: "512Mi"
+              ephemeral-storage: "512Mi"
 
           readinessProbe:
             httpGet:
@@ -91,7 +95,19 @@ spec:
 
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false  # Next.js standalone writes tmp files
+            # Root FS is read-only; the only writable path is the /tmp emptyDir
+            # below — mirrors docker-compose's `read_only: true` + tmpfs /tmp.
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        # Sole writable mount for the Next.js standalone server's scratch files.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

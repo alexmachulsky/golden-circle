@@ -1,0 +1,19 @@
+title = "gitleaks config — golden-circle"
+
+# Start from gitleaks' built-in rules, then add an allowlist for known-safe
+# strings that would otherwise be flagged.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public test keys and placeholder secret files"
+paths = [
+  '''secrets/.*\.txt''',       # Docker-secret placeholders (empty/local-only)
+  '''\.env\.local\.example''', # documented example values only
+]
+regexes = [
+  # Cloudflare Turnstile public TEST keys only (fixed all-zero shapes); kept
+  # tight so a real secret can never be masked by this allowlist.
+  '''[123]x0{20}[A-Z]{2}''', # site keys, e.g. 1x00000000000000000000AA
+  '''[123]x0{31}[A-Z]{2}''', # secret keys, e.g. 1x0000000000000000000000000000000AA
+]

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import Script from 'next/script';
 import { getTurnstileSiteKey } from '@/lib/turnstile';
+import { logger } from '@/lib/logger';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -31,7 +32,7 @@ export default async function RootLayout({
   try {
     turnstileSiteKey = getTurnstileSiteKey();
   } catch (e) {
-    console.error("[layout] Failed to read Turnstile site key:", e);
+    logger.error("layout failed to read Turnstile site key", { err: e instanceof Error ? e.message : String(e) });
   }
   // Force dynamic rendering so Next can read the per-request CSP nonce from
   // proxy.ts and attach it to inline framework scripts/styles during SSR.

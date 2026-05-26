@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { readRuntimeValue } from "@/lib/runtime-env";
 import { env } from "@/lib/env";
+import { logger } from "@/lib/logger";
+import { parseAnalysis } from "@/lib/validate-analysis";
 
 /**
  * Identical-input cache for /api/analyze.
@@ -46,10 +48,19 @@ export function computeCacheKey(input: string): string {
 }
 
 function isCachableResponse(value: string): boolean {
-  // Don't cache error sentinels or anything that wouldn't parse as JSON.
+  // Never cache error sentinels.
   if (value.includes("__ERROR__")) return false;
-  const trimmed = value.trimStart();
-  return trimmed.startsWith("{");
+  // Only cache a response that actually parses into a valid AnalysisResult —
+  // the same check the client runs. A truncated stream (cut off mid-object) or
+  // a schema-violating response would otherwise be cached and re-served for the
+  // full TTL, turning a transient glitch into a sticky "Could not parse the AI
+  // response" error for every identical request.
+  try {
+    parseAnalysis(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface UpstashConfig {
@@ -86,17 +97,17 @@ async function upstashCommand<T = unknown>(
       signal: AbortSignal.timeout(UPSTASH_TIMEOUT_MS),
     });
   } catch (err) {
-    console.warn("[analyze-cache] upstash request failed:", err instanceof Error ? err.message : String(err));
+    logger.warn("cache upstash request failed", { err: err instanceof Error ? err.message : String(err) });
     return null;
   }
   if (!response.ok) {
-    console.warn(`[analyze-cache] upstash HTTP ${response.status}`);
+    logger.warn("cache upstash non-ok", { status: response.status });
     return null;
   }
   try {
     const payload = (await response.json()) as { result?: T; error?: string };
     if (payload.error) {
-      console.warn("[analyze-cache] upstash error:", payload.error);
+      logger.warn("cache upstash error", { err: String(payload.error) });
       return null;
     }
     return (payload.result ?? null) as T | null;

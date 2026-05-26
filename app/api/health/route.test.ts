@@ -20,8 +20,8 @@ function createSecretFile(name: string, value: string): string {
 
 beforeEach(() => {
   setNodeEnv("test");
-  delete process.env.GROQ_API_KEY;
-  delete process.env.GROQ_API_KEY_FILE;
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_API_KEY_FILE;
   delete process.env.DEPLOYMENT_MODE;
   delete process.env.TRUSTED_IP_HEADER;
   delete process.env.UPSTASH_REDIS_REST_URL;
@@ -41,7 +41,7 @@ afterEach(() => {
 describe("/api/health", () => {
   it("returns 503 in public production when Turnstile is disabled", async () => {
     setNodeEnv("production");
-    process.env.GROQ_API_KEY = "groq-key";
+    process.env.OPENROUTER_API_KEY = "groq-key";
 
     const res = await GET();
 
@@ -52,7 +52,7 @@ describe("/api/health", () => {
   it("reports ok in local production when Groq is configured (Upstash/proxy not required)", async () => {
     setNodeEnv("production");
     process.env.DEPLOYMENT_MODE = "local";
-    process.env.GROQ_API_KEY = "groq-key";
+    process.env.OPENROUTER_API_KEY = "groq-key";
 
     const res = await GET();
 
@@ -68,8 +68,8 @@ describe("/api/health", () => {
 
   it("accepts file-backed GROQ and Turnstile site key configuration", async () => {
     setNodeEnv("production");
-    delete process.env.GROQ_API_KEY;
-    process.env.GROQ_API_KEY_FILE = createSecretFile("groq-key.txt", "file-groq-key");
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY_FILE = createSecretFile("groq-key.txt", "file-groq-key");
     process.env.TRUSTED_IP_HEADER = "x-client-ip";
     process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
     process.env.UPSTASH_REDIS_REST_TOKEN = "redis-token";

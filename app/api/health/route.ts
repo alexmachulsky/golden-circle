@@ -1,18 +1,20 @@
 import { readRuntimeValue } from "@/lib/runtime-env";
 import { getTurnstileSiteKey } from "@/lib/turnstile";
+import { logger } from "@/lib/logger";
 
 export async function GET() {
   const isPublicProduction =
     process.env.NODE_ENV === "production" &&
     process.env.DEPLOYMENT_MODE?.trim().toLowerCase() !== "local";
-  let groqConfigured = false;
+  let llmConfigured = false;
   let rateLimitConfigured = true;
   let trustedProxyConfigured = true;
   let turnstileConfigured = true;
   let turnstileEnabled = false;
 
   try {
-    groqConfigured = Boolean(readRuntimeValue("GROQ_API_KEY"));
+    // Groq (original): readRuntimeValue("GROQ_API_KEY")
+    llmConfigured = Boolean(readRuntimeValue("OPENROUTER_API_KEY"));
   } catch {
     // file-backed secret not accessible
   }
@@ -43,7 +45,7 @@ export async function GET() {
 
   const turnstileRequired = isPublicProduction;
   const canServeRequests =
-    groqConfigured &&
+    llmConfigured &&
     turnstileConfigured &&
     (!turnstileRequired || turnstileEnabled);
   const fullyConfigured =
@@ -53,8 +55,8 @@ export async function GET() {
   // Only expose aggregate status to unauthenticated callers.
   // Detailed service breakdown is logged server-side for operators.
   if (!canServeRequests || !fullyConfigured) {
-    console.warn("[health] degraded:", {
-      groq: groqConfigured ? "ok" : "missing",
+    logger.warn("health degraded", {
+      llm: llmConfigured ? "ok" : "missing",
       rateLimit: rateLimitConfigured ? "ok" : "missing",
       trustedProxy: trustedProxyConfigured ? "ok" : "missing",
       turnstile: turnstileConfigured ? (turnstileEnabled ? "ok" : "disabled") : "missing",
@@ -64,7 +66,7 @@ export async function GET() {
   return Response.json(
     { status },
     {
-      // 503 only when the app cannot serve requests at all (Groq missing or
+      // 503 only when the app cannot serve requests at all (LLM key missing or
       // Turnstile misconfigured). Degraded optional services still return 200
       // so the Docker health check passes.
       status: canServeRequests ? 200 : 503,

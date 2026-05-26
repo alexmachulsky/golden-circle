@@ -3,16 +3,18 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// ── Shared mock for groq create — replaced per-test as needed ───────────────
+// ── Shared mock for the chat-completions create — replaced per-test as needed ─
 const mockCreate = vi.fn();
 const originalFetch = global.fetch;
 const DEFAULT_IDEA = "A business idea that is at least fifty characters long for testing.";
 const tempDirs: string[] = [];
 
-// ── Mock groq-sdk before importing the route ────────────────────────────────
-vi.mock('groq-sdk', () => {
+// ── Mock the openai SDK before importing the route ──────────────────────────
+// The route calls OpenRouter (OpenAI-compatible) via the official `openai`
+// client; the streaming chunk shape is identical to the previous groq-sdk.
+vi.mock('openai', () => {
   return {
-    default: class MockGroq {
+    default: class MockOpenAI {
       chat = { completions: { create: mockCreate } };
     },
   };
@@ -29,6 +31,7 @@ vi.mock('@/lib/config', () => ({
 
 import { POST } from "./route";
 import { _resetStoreForTesting } from "@/lib/rate-limit";
+import { _resetCacheForTesting } from "@/lib/analyze-cache";
 
 function setNodeEnv(value: string): void {
   (process.env as Record<string, string | undefined>)["NODE_ENV"] = value;
@@ -122,14 +125,18 @@ async function collectStream(res: Response): Promise<string> {
 beforeEach(() => {
   mockCreate.mockReset();
   _resetStoreForTesting();
-  process.env.GROQ_API_KEY = "test-key";
+  _resetCacheForTesting();
+  process.env.OPENROUTER_API_KEY = "test-key";
+  // verifyTurnstileToken reads ALLOWED_ORIGINS from process.env (not the mocked
+  // @/lib/config) for hostname binding; "localhost" matches mockProductionFetch.
+  process.env.ALLOWED_ORIGINS = "http://localhost:7001";
   setNodeEnv("test");
   setDeploymentMode(undefined);
   delete process.env.TEST_TRUSTED_IP_HEADER;
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
   delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
-  delete process.env.GROQ_API_KEY_FILE;
+  delete process.env.OPENROUTER_API_KEY_FILE;
   delete process.env.TURNSTILE_SITE_KEY;
   delete process.env.TURNSTILE_SITE_KEY_FILE;
   delete process.env.TURNSTILE_SECRET_KEY;
@@ -137,12 +144,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.GROQ_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.ALLOWED_ORIGINS;
   delete process.env.TEST_TRUSTED_IP_HEADER;
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
   delete process.env.UPSTASH_REDIS_REST_TOKEN_FILE;
-  delete process.env.GROQ_API_KEY_FILE;
+  delete process.env.OPENROUTER_API_KEY_FILE;
   delete process.env.TURNSTILE_SITE_KEY;
   delete process.env.TURNSTILE_SITE_KEY_FILE;
   delete process.env.TURNSTILE_SECRET_KEY;
@@ -250,13 +258,13 @@ describe("Rate limit guard", () => {
 });
 
 describe("Error message hygiene", () => {
-  it("returns generic message, not GROQ_API_KEY text, when key is missing", async () => {
-    delete process.env.GROQ_API_KEY;
+  it("returns generic message, not OPENROUTER_API_KEY text, when key is missing", async () => {
+    delete process.env.OPENROUTER_API_KEY;
     const req = makeReq({});
     const res = await POST(req);
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).not.toContain("GROQ_API_KEY");
+    expect(json.error).not.toContain("OPENROUTER_API_KEY");
     expect(json.error).not.toContain("configure");
   });
 
@@ -274,9 +282,9 @@ describe("Error message hygiene", () => {
 });
 
 describe("Runtime secret files", () => {
-  it("accepts GROQ_API_KEY_FILE when the direct env var is absent", async () => {
-    delete process.env.GROQ_API_KEY;
-    process.env.GROQ_API_KEY_FILE = createSecretFile("groq-api-key.txt", "file-backed-key");
+  it("accepts OPENROUTER_API_KEY_FILE when the direct env var is absent", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY_FILE = createSecretFile("groq-api-key.txt", "file-backed-key");
 
     mockCreate.mockResolvedValue(
       (async function* () {
@@ -379,6 +387,26 @@ describe("Challenge verification", () => {
     expect(challengeBody).toContain("remoteip=203.0.113.10");
   });
 
+  it("fails closed (503) in public production when ALLOWED_ORIGINS has no valid hostname", async () => {
+    setNodeEnv("production");
+    process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "secret-token";
+    process.env.TURNSTILE_SITE_KEY = "site-key";
+    process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
+    process.env.ALLOWED_ORIGINS = ""; // no hostnames → hostname binding impossible
+    mockProductionFetch();
+
+    const res = await POST(makeReq({
+      headers: { "x-client-ip": "203.0.113.10" },
+      body: { businessIdea: DEFAULT_IDEA, turnstileToken: "token-from-widget" },
+    }));
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
   it("accepts TURNSTILE_SECRET_KEY_FILE when Turnstile is enabled", async () => {
     setNodeEnv("production");
     process.env.TEST_TRUSTED_IP_HEADER = "x-client-ip";
@@ -447,6 +475,26 @@ describe("Happy path", () => {
     const res = await POST(makeReq({}));
     expect(res.status).toBe(200);
     await expect(collectStream(res)).resolves.toBe("{}");
+  });
+
+  it("accepts a null turnstileToken when Turnstile is not configured", async () => {
+    // The client sends `turnstileToken: null` whenever the widget is absent;
+    // the type guard must treat null like undefined, not reject it as malformed.
+    mockCreate.mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: { content: "{}" } }] };
+      })(),
+    );
+
+    const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, turnstileToken: null } }));
+    expect(res.status).toBe(200);
+    await expect(collectStream(res)).resolves.toBe("{}");
+  });
+
+  it("rejects a non-string, non-null turnstileToken as malformed", async () => {
+    const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, turnstileToken: 123 } }));
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "turnstileToken must be a string." });
   });
 
   it("streams the model response text", async () => {

@@ -17,3 +17,14 @@ updates:
     commit-message:
       prefix: "ci"
     open-pull-requests-limit: 5
+
+  # Keep the Docker base image digest current — the Dockerfile pins
+  # node:20-alpine by sha256, so this opens a PR when a new digest publishes
+  # (fixing OS CVEs the pinned digest would otherwise carry indefinitely).
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+    open-pull-requests-limit: 5

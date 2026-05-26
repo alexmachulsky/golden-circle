@@ -4,7 +4,7 @@ import { resolve, normalize } from "node:path"
 /**
  * In production, secret files must reside in one of these directories.
  * This prevents path-traversal attacks via a misconfigured *_FILE env var
- * (e.g. GROQ_API_KEY_FILE=/proc/self/environ).
+ * (e.g. OPENROUTER_API_KEY_FILE=/proc/self/environ).
  */
 const ALLOWED_SECRET_DIRS = ["/run/secrets", "/var/secrets"]
 

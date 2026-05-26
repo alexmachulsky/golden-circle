@@ -1,0 +1,49 @@
+name: Claude PR Review
+
+# Claude posts a code review on every PR. It reviews only — a human (or, for
+# Dependabot patch/minor bumps, the dependabot-auto-approve workflow) still
+# approves and merges. Review commentary never gates or approves the PR.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Least-privilege: read the code, write review comments back to the PR.
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Claude review
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Skip fork PRs (the OAuth secret isn't exposed to them) and Dependabot PRs
+    # (also no secret access — those are handled by dependabot-auto-approve.yml).
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@787c5a0ce96a9a6cfb050ea0c8f4c05f2447c251  # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Tag mode with a tracking comment, scoped to this PR event.
+          track_progress: true
+          prompt: |
+            Review this pull request as a senior engineer. Concentrate on:
+            - Correctness bugs, logic errors, and unhandled edge cases
+            - Security: input validation, secret handling, injection, supply chain
+            - The repo's own conventions in CLAUDE.md and AGENTS.md
+            - CI, Dockerfile, and Kubernetes/Kyverno manifest changes
+            Post concise, actionable findings. Do NOT approve or merge the PR —
+            leave the approval decision to a human reviewer.

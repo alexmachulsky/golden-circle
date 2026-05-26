@@ -8,7 +8,7 @@ import { z } from "zod";
  * with a single readable error rather than producing silent 500s deeper in
  * the request lifecycle.
  *
- * Secrets (GROQ_API_KEY, UPSTASH_REDIS_REST_TOKEN, TURNSTILE_SECRET_KEY)
+ * Secrets (OPENROUTER_API_KEY, UPSTASH_REDIS_REST_TOKEN, TURNSTILE_SECRET_KEY)
  * intentionally stay out of this schema — they are read on demand via
  * lib/runtime-env so the file-backed (*_FILE) path keeps working.
  */

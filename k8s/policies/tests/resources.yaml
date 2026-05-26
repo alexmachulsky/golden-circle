@@ -1,0 +1,38 @@
+# Fixtures for `kyverno test`. `good-pod` satisfies every policy; `bad-pod`
+# violates every policy. These let CI prove the policy logic catches real
+# violations without needing a live cluster.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good-pod
+spec:
+  securityContext:
+    runAsNonRoot: true
+  containers:
+    - name: app
+      image: ghcr.io/alexmachulsky/golden-circle:1.0.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-pod
+spec:
+  containers:
+    - name: app
+      # latest tag, root user, privilege escalation allowed, no dropped
+      # capabilities, no resource requests/limits — violates all five policies.
+      image: nginx:latest
+      securityContext:
+        allowPrivilegeEscalation: true

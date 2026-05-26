@@ -57,3 +57,10 @@ AGENTS.md
 # Playwright screenshot output
 /output/
 nohup.out
+
+# Brainstorming visual companion
+.superpowers/
+
+# Security scan artifacts (generated in CI, never committed)
+*.sarif
+/checkov-out/
