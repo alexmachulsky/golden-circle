@@ -105,6 +105,8 @@ jobs:
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITLEAKS_CONFIG: .gitleaks.toml
+          # Required since gitleaks-action v2 to scan pull_request events.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ── 2c. IAC & CONFIG LINT ──────────────────────────────────────────────────
   # Lints the artifacts that produce the running system — the Dockerfile, the
@@ -129,7 +131,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD":/repo -w /repo \
             hadolint/hadolint:2.12.0-alpine@sha256:3c206a451cec6d486367e758645269fd7d696c5ccb6ff59d8b03b0e45268a199 \
-            Dockerfile
+            hadolint Dockerfile
 
       - name: Lint GitHub Actions workflows (actionlint)
         run: |
