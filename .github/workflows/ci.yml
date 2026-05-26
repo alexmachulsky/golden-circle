@@ -39,6 +39,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
@@ -54,13 +55,14 @@ jobs:
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
-          # GROQ_API_KEY is runtime-only — not consumed by next build
+          # OPENROUTER_API_KEY is runtime-only — not consumed by next build
 
   # ── 2. VERIFY ─────────────────────────────────────────────────────────────
   verify:
     name: Test & Code Analysis
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
@@ -90,6 +92,7 @@ jobs:
     name: Secret Scan (gitleaks)
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 10
     permissions:
       contents: read # read-only: clone full history and report
 
@@ -112,6 +115,7 @@ jobs:
     name: IaC & Config Lint
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 10
 
     permissions:
       contents: read
@@ -175,6 +179,7 @@ jobs:
     name: Policy (Kyverno)
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 10
 
     permissions:
       contents: read
@@ -201,12 +206,17 @@ jobs:
             k8s/policies/require-resource-limits.yaml \
             k8s/policies/disallow-latest-tag.yaml \
             --resource k8s/deployment.yaml --audit-warn
+        # NOTE: verify-image-signatures.yaml is intentionally excluded here. Its
+        # verifyImages rule needs live registry + Rekor access, which neither
+        # `kyverno test` nor offline `kyverno apply` has — it is enforced at real
+        # cluster admission and verified in CI by the cosign signing step instead.
 
   # ── 3. PACKAGE ────────────────────────────────────────────────────────────
   package:
     name: Package & Scan
     runs-on: ubuntu-latest
     needs: [verify, secret-scan, iac-lint, policy]
+    timeout-minutes: 20
 
     permissions:
       contents: read
@@ -263,6 +273,7 @@ jobs:
     name: Publish to GHCR
     runs-on: ubuntu-latest
     needs: package
+    timeout-minutes: 20
     # Push only on merges to main — never from PRs
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: production
@@ -287,6 +298,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push to GHCR
+        id: build
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
         with:
           context: .
@@ -300,3 +312,18 @@ jobs:
           # Emit an SBOM and SLSA provenance attestation; stored in the GHCR OCI registry.
           sbom: true
           provenance: mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      - name: Sign image (keyless / Sigstore OIDC)
+        # Keyless signature bound to this workflow's OIDC identity (no long-lived
+        # keys). Signs by immutable digest, not tag, so the exact pushed manifest
+        # is attested. The signature is stored alongside the image in GHCR and the
+        # transparency record is logged to Rekor. Verify with:
+        #   cosign verify ghcr.io/alexmachulsky/golden-circle@<digest> \
+        #     --certificate-identity-regexp '^https://github.com/alexmachulsky/golden-circle/.github/workflows/ci.yml@.*' \
+        #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE_NAME}@${DIGEST}"

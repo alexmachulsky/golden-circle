@@ -1,0 +1,49 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify Image Signatures (cosign keyless)
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Admission-time counterpart to the cosign signing step in CI. Images pulled
+      from this project's GHCR repository must carry a valid keyless cosign
+      signature whose certificate was issued to the project's CI workflow via
+      GitHub's OIDC provider. This proves the image was built by the trusted
+      pipeline (not pushed by hand or by a compromised credential) and binds it
+      to an immutable digest. The Minikube POC image (golden-circle:latest) is
+      side-loaded and does not match `ghcr.io/...`, so the rule is skipped for it.
+spec:
+  # Image verification cannot run during background scans of existing resources;
+  # it is evaluated at admission only.
+  background: false
+  validationFailureAction: Audit
+  # If the verification webhook can't reach the registry/Rekor, don't wedge the
+  # API server — fail open while in Audit. Flip to Fail alongside Enforce.
+  failurePolicy: Ignore
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-cosign-keyless
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/alexmachulsky/golden-circle*"
+          # Resolve and pin the tag to the verified digest on admission.
+          mutateDigest: true
+          verifyDigest: true
+          required: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    # The image was signed by this exact workflow identity.
+                    issuer: "https://token.actions.githubusercontent.com"
+                    subject: "https://github.com/alexmachulsky/golden-circle/.github/workflows/ci.yml@refs/heads/main"
+                    rekor:
+                      url: https://rekor.sigstore.dev
