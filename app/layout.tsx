@@ -3,16 +3,27 @@ import { headers } from 'next/headers';
 import Script from 'next/script';
 import { getTurnstileSiteKey } from '@/lib/turnstile';
 import { logger } from '@/lib/logger';
+import { SITE_URL, SITE_NAME, SITE_DESCRIPTION } from '@/lib/site';
 import './globals.css';
 
 export const metadata: Metadata = {
+  // metadataBase makes the auto-detected opengraph-image / icons resolve to
+  // absolute URLs so shared links unfurl correctly.
+  metadataBase: new URL(SITE_URL),
   title: 'Golden Circle Analyzer | AI-Powered Business Strategy',
-  description:
-    "Discover your business's WHY, HOW, and WHAT using Simon Sinek's Golden Circle framework — powered by AI engineered to produce real depth, not generic platitudes.",
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
   openGraph: {
-    title: 'Golden Circle Analyzer',
+    title: SITE_NAME,
     description: "AI-powered strategic analysis using Simon Sinek's Golden Circle framework",
     type: 'website',
+    url: SITE_URL,
+    siteName: SITE_NAME,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE_NAME,
+    description: "AI-powered strategic analysis using Simon Sinek's Golden Circle framework",
   },
 };
 
