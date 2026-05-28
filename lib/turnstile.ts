@@ -65,6 +65,27 @@ function getTurnstileConfig(
   return { siteKey, secretKey }
 }
 
+/**
+ * Boot-time invariant check: TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY must
+ * be both set or both unset. Surfaces the misconfiguration at server start
+ * instead of waiting for the first request. Safe to call multiple times.
+ */
+export function assertTurnstileConfigValid(env: NodeJS.ProcessEnv = process.env): void {
+  // getTurnstileConfig throws TurnstileError if exactly one key is set; we
+  // re-throw as a plain Error so the boot path doesn't depend on the HTTP-
+  // shaped TurnstileError type.
+  try {
+    getTurnstileConfig(env)
+  } catch (err) {
+    if (err instanceof TurnstileError) {
+      throw new Error(
+        "TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY must be both set or both unset.",
+      )
+    }
+    throw err
+  }
+}
+
 function isPublicProduction(env: NodeJS.ProcessEnv): boolean {
   return env.NODE_ENV === "production" && env.DEPLOYMENT_MODE?.trim().toLowerCase() !== "local"
 }

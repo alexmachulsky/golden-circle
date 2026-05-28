@@ -126,6 +126,20 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
 
+      # Guardrail: an operator's LAN IP once leaked into k8s/configmap.yaml's
+      # ALLOWED_ORIGINS. This step blocks RFC1918 addresses from re-entering
+      # the base manifests; environment-specific origins belong in a kustomize
+      # overlay. Link-local (169.254/16) is intentionally excluded — cloud
+      # configs reference the IMDS endpoint 169.254.169.254 in comments.
+      - name: Forbid RFC1918 IPs in k8s manifests
+        run: |
+          set -euo pipefail
+          pattern='\b(10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})\b'
+          if grep -REn --include='*.yaml' --include='*.yml' "$pattern" k8s/; then
+            echo "::error::RFC1918 private IPv4 address found under k8s/. Move environment-specific addresses to a kustomize overlay."
+            exit 1
+          fi
+
       - name: Lint Dockerfile (hadolint)
         # Mount the repo so hadolint discovers .hadolint.yaml from the work dir.
         run: |
