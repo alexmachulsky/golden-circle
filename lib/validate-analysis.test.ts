@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAnalysis } from './validate-analysis';
+import { parseAnalysis, sanitizeOutputString } from './validate-analysis';
 
 const HOW_ITEM = {
   title: 'Radical Transparency',
@@ -141,5 +141,21 @@ describe('parseAnalysis — malformed input', () => {
 
   it('throws on valid JSON that is not an object', () => {
     expect(() => parseAnalysis('[1, 2, 3]')).toThrow('Invalid analysis response');
+  });
+});
+
+describe('sanitizeOutputString', () => {
+  it('strips bidi override / zero-width / formatting characters', () => {
+    // Sample includes: LRM, RLM, LRE, RLE, PDF, LRO, RLO, ZWSP, ZWJ, BOM, ALM
+    const dirty = 'Error‎‏‪‫‬‭‮​‍﻿؜: timeout';
+    expect(sanitizeOutputString(dirty)).toBe('Error: timeout');
+  });
+
+  it('strips ASCII control characters', () => {
+    expect(sanitizeOutputString('a\x00b\x07c\x1Fd\x7Fe')).toBe('abcde');
+  });
+
+  it('preserves ordinary printable text and unicode letters', () => {
+    expect(sanitizeOutputString('Hello, world! — résumé')).toBe('Hello, world! — résumé');
   });
 });

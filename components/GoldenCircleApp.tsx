@@ -9,7 +9,7 @@ import FrameworkIntro from '@/components/FrameworkIntro';
 import RecentAnalyses from '@/components/RecentAnalyses';
 import type { AnalysisResult } from '@/types';
 import type { RefinementKey } from '@/lib/prompt';
-import { parseAnalysis } from '@/lib/validate-analysis';
+import { parseAnalysis, sanitizeOutputString } from '@/lib/validate-analysis';
 import { decodeAnalysisFromHash } from '@/lib/share-link';
 import {
   listAnalyses,
@@ -137,9 +137,11 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
         fullText += decoder.decode();
 
         // Check for server-side error signal. Cap and strip the suffix so a
-        // prompt-injected response can never surface arbitrary text as a UI error.
+        // prompt-injected response can never surface bidi/zero-width chars or
+        // control codes in the error toast. Reuses the same allowlist applied
+        // to validated LLM output for consistency.
         if (fullText.startsWith('__ERROR__')) {
-          const raw = fullText.slice(9, 300).replace(/[^\x20-\x7E\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF]/g, '');
+          const raw = sanitizeOutputString(fullText.slice(9, 300)).trim();
           throw new Error(raw || 'Analysis failed. Please try again.');
         }
 

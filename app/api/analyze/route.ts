@@ -37,6 +37,11 @@ const BODY_LIMIT_BYTES = 8 * 1024; // 8 KB - well above the MAX_INPUT_LENGTH-cha
 // mid-stream and the client saw truncated JSON ("Could not parse the AI
 // response"). 60s gives comfortable headroom above the observed worst case.
 const UPSTREAM_TIMEOUT_MS = 60_000;
+// Server-side cap on assembled LLM output. A schema-valid Golden Circle response
+// is ~4-5 KB, so 32 KB is generous headroom; anything beyond it indicates a
+// runaway or hostile upstream and is cut off (with the client's 64 KB cap as a
+// secondary backstop).
+const MAX_RESPONSE_BYTES = 32 * 1024;
 
 function sanitizeInput(input: string): string {
   return input
@@ -274,6 +279,17 @@ export async function POST(req: Request) {
             } else {
               controller.enqueue(encoder.encode(text));
               fullResponse += text;
+            }
+
+            // Defense in depth: cut off a runaway upstream before it can fill
+            // memory or blow past the client's own cap. Skip the cache write
+            // by returning early so a truncated/garbage stream is never stored.
+            if (fullResponse.length > MAX_RESPONSE_BYTES) {
+              logger.warn("upstream response exceeded byte cap", { reqId, bytes: fullResponse.length });
+              controller.enqueue(encoder.encode("__ERROR__Response exceeded maximum size."));
+              controller.close();
+              ac.abort();
+              return;
             }
           }
         }

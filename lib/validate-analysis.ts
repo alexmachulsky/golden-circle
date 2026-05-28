@@ -91,7 +91,7 @@ function stripTrailingCommas(value: string): string {
 const CONTROL_AND_BIDI_RE =
   /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u061C\u180E\u200B-\u200F\u2028-\u202E\u2060-\u2069\uFEFF]/g;
 
-function sanitizeOutputString(value: string): string {
+export function sanitizeOutputString(value: string): string {
   return value.replace(CONTROL_AND_BIDI_RE, "");
 }
 

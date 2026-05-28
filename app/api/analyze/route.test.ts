@@ -576,6 +576,33 @@ describe("Streaming edge cases", () => {
     const text = await collectStream(res);
     expect(text).toContain("timed out");
   });
+
+  it("cuts off and does not cache a response that exceeds the server byte cap", async () => {
+    // Stream a valid JSON opening so the prefix-check passes immediately,
+    // then a long payload that pushes assembled length past 32 KB.
+    const opener = '{"why":"';
+    const filler = "x".repeat(40 * 1024);
+    mockCreate.mockResolvedValue(
+      (async function* () {
+        yield { choices: [{ delta: { content: opener } }] };
+        yield { choices: [{ delta: { content: filler } }] };
+        // This chunk must never be forwarded — the cap should have closed the stream.
+        yield { choices: [{ delta: { content: '","trailing":true}' } }] };
+      })(),
+    );
+
+    const res = await POST(makeReq({}));
+    const text = await collectStream(res);
+    expect(text.endsWith("__ERROR__Response exceeded maximum size.")).toBe(true);
+    expect(text).not.toContain('"trailing":true');
+    // Let any fire-and-forget cache write settle, then confirm the next call
+    // still goes upstream (truncated payloads must never be cached).
+    await new Promise((r) => setTimeout(r, 0));
+    streamOnce(VALID_RESULT);
+    const second = await POST(makeReq({}));
+    await expect(collectStream(second)).resolves.toBe(VALID_RESULT);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("Input sanitization", () => {
