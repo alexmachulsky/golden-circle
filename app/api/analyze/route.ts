@@ -18,24 +18,19 @@ import {
 import { MIN_INPUT_LENGTH, MAX_INPUT_LENGTH } from "@/lib/constants";
 import { logger, newRequestId } from "@/lib/logger";
 import { getModel } from "@/lib/agent/llm";
-import { runAnalysisStream } from "@/lib/agent/graph";
+import { runAnalysis } from "@/lib/agent/graph";
+import { encodeEvent, type AgentEvent } from "@/lib/agent/events";
+import { sanitizeAnalysis } from "@/lib/validate-analysis";
 
 // ── AI provider ───────────────────────────────────────────────────────────
-// The streaming is now routed through the agent graph (AI SDK) instead of
-// calling OpenRouter directly. getModel() and runAnalysisStream() handle
-// LLM invocation, while the route preserves all guards, caching, and error handling.
+// The analysis runs through the agent reflection loop (AI SDK structured
+// output) and is streamed to the client as typed ndjson events. getModel() and
+// runAnalysis() handle LLM invocation; the route preserves all guards, caching,
+// and error handling.
 const BODY_LIMIT_BYTES = 8 * 1024; // 8 KB - well above the MAX_INPUT_LENGTH-char input maximum
-// gpt-oss-120b is a large, comparatively slow model: a full Golden Circle
-// generation measures ~25-30s. The previous 30s budget (tuned for Groq's fast
-// Llama model) sat right at that edge, so slower generations were aborted
-// mid-stream and the client saw truncated JSON ("Could not parse the AI
-// response"). 60s gives comfortable headroom above the observed worst case.
-const UPSTREAM_TIMEOUT_MS = 60_000;
-// Server-side cap on assembled LLM output. A schema-valid Golden Circle response
-// is ~4-5 KB, so 32 KB is generous headroom; anything beyond it indicates a
-// runaway or hostile upstream and is cut off (with the client's 64 KB cap as a
-// secondary backstop).
-const MAX_RESPONSE_BYTES = 32 * 1024;
+// The reflection loop makes up to three model calls (analyze + critique +
+// refine), so the per-request budget is larger than the single-call era.
+const UPSTREAM_TIMEOUT_MS = 90_000;
 
 function sanitizeInput(input: string): string {
   return input
@@ -53,7 +48,7 @@ const ERROR_HEADERS = {
 };
 
 const STREAM_HEADERS = {
-  "Content-Type": "text/plain; charset=utf-8",
+  "Content-Type": "application/x-ndjson; charset=utf-8",
   "Cache-Control": "no-store",
   "X-Content-Type-Options": "nosniff",
 };
@@ -185,120 +180,48 @@ export async function POST(req: Request) {
     // Cache failures must never block the request — fall through to the LLM.
     logger.warn("cache lookup failed", { reqId, err: err instanceof Error ? err.message : String(err) });
   }
-  if (cached && !cached.includes("__ERROR__")) {
+  if (cached) {
     logger.info("analyze", { reqId, cache: "hit", status: 200 });
-    return new Response(cached, { headers: streamHeaders });
+    // Cache only ever holds a validated analysis JSON; re-emit it as a final event.
+    const event = encodeEvent({ type: "final", result: JSON.parse(cached) });
+    return new Response(event, { headers: streamHeaders });
   }
   logger.info("analyze", { reqId, cache: "miss", status: 200 });
 
-  // ── Stream the analysis via the agent graph (AI SDK) ──────────────────────
+  // ── Run the agent reflection loop, streaming typed ndjson events ──────────
+  const model = getModel(apiKey);
   const encoder = new TextEncoder();
 
-  const readable = new ReadableStream({
+  const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), UPSTREAM_TIMEOUT_MS);
+      req.signal.addEventListener("abort", () => ac.abort(), { once: true });
 
-      // Also abort if the client disconnects
-      req.signal.addEventListener('abort', () => ac.abort(), { once: true });
+      // Forward events to the client; sanitize any analysis payload (defense in
+      // depth) before it leaves the server.
+      const emit = (event: AgentEvent) => {
+        const safe: AgentEvent =
+          event.type === "final" || event.type === "draft"
+            ? { ...event, result: sanitizeAnalysis(event.result) }
+            : event;
+        controller.enqueue(encoder.encode(encodeEvent(safe)));
+      };
 
       try {
-        const model = getModel(apiKey);
-        const stream = runAnalysisStream(
+        const analysis = await runAnalysis(
           { mode: "idea", text: sanitized, refinement },
-          { model, signal: ac.signal },
+          { model, signal: ac.signal, emit },
         );
-
-        let accumulated = "";
-        let checkedPrefix = false;
-        let fullResponse = "";
-
-        for await (const text of stream) {
-          if (text) {
-            // Guard against a prompt-injected LLM response that starts with
-            // the error sentinel.  Buffer until we see the first '{' (start of
-            // the JSON object) or until we have enough bytes to be certain the
-            // sentinel is absent.  Check the entire preamble before '{' so a
-            // sentinel padded with whitespace or split across chunks is still
-            // caught — but only within that pre-JSON window to avoid false
-            // positives on JSON content that mentions the literal string.
-            if (!checkedPrefix) {
-              accumulated += text;
-              const braceIndex = accumulated.indexOf("{");
-              // Wait for the JSON to start, or for enough bytes that a sentinel
-              // beginning within the first 64 can't be split across the cutoff
-              // (the sentinel itself is 9 chars).
-              const ready = braceIndex !== -1 || accumulated.length >= 64 + "__ERROR__".length;
-              if (ready) {
-                checkedPrefix = true;
-                // The preamble is everything before the first '{', or the
-                // entire accumulated buffer if no '{' has appeared yet.
-                const preamble =
-                  braceIndex !== -1 ? accumulated.slice(0, braceIndex) : accumulated;
-                if (/^[\s\S]*?__ERROR__/.test(preamble)) {
-                  // LLM was injected into emitting the error prefix — reject.
-                  controller.enqueue(
-                    encoder.encode("__ERROR__Analysis failed. Please try again."),
-                  );
-                  controller.close();
-                  return;
-                }
-                controller.enqueue(encoder.encode(accumulated));
-                fullResponse += accumulated;
-                accumulated = "";
-              }
-            } else {
-              controller.enqueue(encoder.encode(text));
-              fullResponse += text;
-            }
-
-            // Defense in depth: cut off a runaway upstream before it can fill
-            // memory or blow past the client's own cap. Skip the cache write
-            // by returning early so a truncated/garbage stream is never stored.
-            if (fullResponse.length > MAX_RESPONSE_BYTES) {
-              logger.warn("upstream response exceeded byte cap", { reqId, bytes: fullResponse.length });
-              controller.enqueue(encoder.encode("__ERROR__Response exceeded maximum size."));
-              controller.close();
-              ac.abort();
-              return;
-            }
-          }
-        }
-        // Flush any buffered prefix bytes for very short responses. Use the
-        // same `includes` semantics as the buffered branch above so a short
-        // injected response with leading whitespace before the sentinel is
-        // still rejected.
-        if (accumulated) {
-          if (accumulated.includes("__ERROR__")) {
-            controller.enqueue(encoder.encode("__ERROR__Analysis failed. Please try again."));
-          } else {
-            controller.enqueue(encoder.encode(accumulated));
-            fullResponse += accumulated;
-          }
-        }
-
+        // Cache the validated, sanitized result so the next identical request
+        // skips the LLM. setCachedAnalysis filters non-JSON payloads itself.
+        setCachedAnalysis(cacheKey, JSON.stringify(sanitizeAnalysis(analysis))).catch((err) => {
+          logger.warn("cache write failed", { reqId, err: err instanceof Error ? err.message : String(err) });
+        });
         controller.close();
-
-        // Cache the assembled response so the next identical request skips
-        // the LLM entirely. setCachedAnalysis filters error sentinels and
-        // non-JSON payloads itself.
-        if (fullResponse) {
-          setCachedAnalysis(cacheKey, fullResponse).catch((err) => {
-            logger.warn("cache write failed", { reqId, err: err instanceof Error ? err.message : String(err) });
-          });
-        }
       } catch (err: unknown) {
-        logger.error("upstream error", { reqId, err: err instanceof Error ? err.message : String(err) });
-        // The AI SDK (OpenAI-compatible provider underneath) surfaces an abort
-        // as APIUserAbortError (not AbortError) during stream iteration, so
-        // match on a broader set of names/messages.
-        const isTimeout =
-          err instanceof Error &&
-          (/abort|timeout/i.test(err.name) || /abort|timed?\s*out/i.test(err.message));
-        const clientMsg = isTimeout
-          ? "__ERROR__Request timed out. Please try again."
-          : "__ERROR__Analysis failed. Please try again.";
-        controller.enqueue(encoder.encode(clientMsg));
+        // runAnalysis already emitted a typed `error` event for the client.
+        logger.error("analyze graph error", { reqId, err: err instanceof Error ? err.message : String(err) });
         controller.close();
       } finally {
         clearTimeout(timer);
