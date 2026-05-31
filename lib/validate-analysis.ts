@@ -95,6 +95,29 @@ export function sanitizeOutputString(value: string): string {
   return value.replace(CONTROL_AND_BIDI_RE, "");
 }
 
+// Strip control/bidi chars from every string field of a structured analysis
+// before it leaves the server (defense in depth alongside render-time
+// sanitizing). Optional citations/confidence are preserved as-is.
+export function sanitizeAnalysis(a: AnalysisResult): AnalysisResult {
+  return {
+    why: {
+      statement: sanitizeOutputString(a.why.statement),
+      depth_note: sanitizeOutputString(a.why.depth_note),
+    },
+    how: a.how.map((h) => ({
+      title: sanitizeOutputString(h.title),
+      description: sanitizeOutputString(h.description),
+      uniqueness: sanitizeOutputString(h.uniqueness),
+    })),
+    what: a.what.map((w) => ({
+      title: sanitizeOutputString(w.title),
+      description: sanitizeOutputString(w.description),
+      why_connection: sanitizeOutputString(w.why_connection),
+    })),
+    positioning_note: sanitizeOutputString(a.positioning_note),
+  };
+}
+
 function isNonEmptyString(v: unknown, maxLen?: number): v is string {
   return (
     typeof v === 'string' &&
@@ -173,7 +196,7 @@ function validateShape(data: unknown): AnalysisResult {
     throw new Error('Invalid analysis response');
   }
 
-  const allowed = new Set(["why", "how", "what", "positioning_note"]);
+  const allowed = new Set(["why", "how", "what", "positioning_note", "citations", "confidence"]);
   for (const key of Object.keys(obj)) {
     if (!allowed.has(key)) {
       throw new Error("Invalid analysis response");

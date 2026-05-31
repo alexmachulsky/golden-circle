@@ -3,15 +3,18 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// ── Shared mock for the streamText call — replaced per-test as needed ─
-const mockStreamText = vi.fn();
+// ── Mock the agent graph — replaced per-test as needed ──────────────────────
+// The route runs the reflection loop via runAnalysis() and streams the typed
+// events it emits as ndjson. Mocking the graph keeps these tests offline and
+// focused on the route's own responsibilities (guards, cache, sanitization,
+// passing the right input).
+const mockRunAnalysis = vi.fn();
 const originalFetch = global.fetch;
 const DEFAULT_IDEA = "A business idea that is at least fifty characters long for testing.";
 const tempDirs: string[] = [];
 
-// ── Mock the AI SDK streamText before importing the route ──────────────────
-vi.mock("ai", () => ({
-  streamText: (opts: unknown) => mockStreamText(opts),
+vi.mock("@/lib/agent/graph", () => ({
+  runAnalysis: (input: unknown, ctx: unknown) => mockRunAnalysis(input, ctx),
 }));
 
 // ── Mock config so origin / rate-limit values are controlled ────────────────
@@ -28,8 +31,8 @@ import { _resetStoreForTesting } from "@/lib/rate-limit";
 import { _resetCacheForTesting } from "@/lib/analyze-cache";
 import { MAX_INPUT_LENGTH } from "@/lib/constants";
 
-// A schema-valid AnalysisResult JSON (passes parseAnalysis → eligible for caching).
-const VALID_RESULT = JSON.stringify({
+// A schema-valid analysis (the shape sanitizeAnalysis + the cache expect).
+const VALID_OBJ = {
   why: { statement: "We believe in clarity.", depth_note: "True even after a product swap." },
   how: [
     { title: "H1", description: "D1", uniqueness: "U1" },
@@ -43,16 +46,28 @@ const VALID_RESULT = JSON.stringify({
     { title: "W3", description: "D3", why_connection: "Because we believe." },
   ],
   positioning_note: "Inside-out edge.",
-});
+};
 
-function userPromptOf(call: number = 0): string {
-  return String(mockStreamText.mock.calls[call]?.[0]?.prompt ?? "");
+interface EmitCtx {
+  emit: (event: unknown) => void;
 }
 
-function streamOnce(text: string) {
-  mockStreamText.mockReturnValue({
-    textStream: (async function* () { yield text; })(),
+// Drive a successful run: emit a final event and return the result, like the
+// real graph does.
+function analysisOnce(result: unknown = VALID_OBJ) {
+  mockRunAnalysis.mockImplementation(async (_input: unknown, ctx: EmitCtx) => {
+    ctx.emit({ type: "final", result });
+    return result;
   });
+}
+
+// The input object the route handed to runAnalysis (sanitized text + refinement).
+function inputOf(call = 0): { mode?: string; text?: string; refinement?: string | null } {
+  return (mockRunAnalysis.mock.calls[call]?.[0] ?? {}) as {
+    mode?: string;
+    text?: string;
+    refinement?: string | null;
+  };
 }
 
 function setNodeEnv(value: string): void {
@@ -131,7 +146,7 @@ function mockProductionFetch(options?: { turnstileSuccess?: boolean }) {
   return fetchMock;
 }
 
-// Helper: collect the full streamed text from a streaming Response
+// Helper: collect the full streamed body (ndjson) from a streaming Response
 async function collectStream(res: Response): Promise<string> {
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
@@ -145,7 +160,7 @@ async function collectStream(res: Response): Promise<string> {
 }
 
 beforeEach(() => {
-  mockStreamText.mockReset();
+  mockRunAnalysis.mockReset();
   _resetStoreForTesting();
   _resetCacheForTesting();
   process.env.OPENROUTER_API_KEY = "test-key";
@@ -231,9 +246,7 @@ describe("Body size guard", () => {
 
 describe("Rate limit guard", () => {
   it("returns 429 after exceeding the per-minute limit", async () => {
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () { yield "{}"; })(),
-    });
+    analysisOnce();
 
     const results: number[] = [];
     for (let i = 0; i < 7; i++) {
@@ -288,16 +301,18 @@ describe("Error message hygiene", () => {
     expect(json.error).not.toContain("configure");
   });
 
-  it("streams generic __ERROR__ message, not raw exception, on upstream failure", async () => {
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () { throw new Error("Internal provider error 500 secret details"); })(),
+  it("emits a typed error event (not a raw exception) when the agent throws", async () => {
+    mockRunAnalysis.mockImplementation(async (_input: unknown, ctx: EmitCtx) => {
+      ctx.emit({ type: "error", message: "Analysis failed. Please try again." });
+      throw new Error("Internal provider error 500 secret details");
     });
 
     const req = makeReq({});
     const res = await POST(req);
-    expect(res.status).toBe(200); // stream starts before error
+    expect(res.status).toBe(200); // stream starts before the error
     const text = await collectStream(res);
-    expect(text).toContain("__ERROR__");
+    expect(text).toContain('"type":"error"');
+    expect(text).toContain("Analysis failed. Please try again.");
     expect(text).not.toContain("secret details");
     expect(text).not.toContain("Internal provider");
   });
@@ -306,15 +321,13 @@ describe("Error message hygiene", () => {
 describe("Runtime secret files", () => {
   it("accepts OPENROUTER_API_KEY_FILE when the direct env var is absent", async () => {
     delete process.env.OPENROUTER_API_KEY;
-    process.env.OPENROUTER_API_KEY_FILE = createSecretFile("groq-api-key.txt", "file-backed-key");
+    process.env.OPENROUTER_API_KEY_FILE = createSecretFile("openrouter-api-key.txt", "file-backed-key");
 
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () { yield "{}"; })(),
-    });
+    analysisOnce();
 
     const res = await POST(makeReq({}));
     expect(res.status).toBe(200);
-    await expect(collectStream(res)).resolves.toBe("{}");
+    expect(await collectStream(res)).toContain('"type":"final"');
   });
 });
 
@@ -336,7 +349,7 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({ error: "Verification required." });
-    expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockRunAnalysis).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -355,7 +368,7 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(503);
     await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
-    expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockRunAnalysis).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -370,19 +383,14 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({ error: "Verification failed." });
-    expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockRunAnalysis).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("verifies Turnstile in production before streaming the model response", async () => {
+  it("verifies Turnstile in production before running the analysis", async () => {
     enableProductionChallenge();
     const fetchMock = mockProductionFetch();
-    const chunks = ['{"why":', '{"statement":"Test"}}'];
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () {
-        for (const c of chunks) yield c;
-      })(),
-    });
+    analysisOnce();
 
     const res = await POST(makeReq({
       headers: { "x-client-ip": "203.0.113.10" },
@@ -390,8 +398,8 @@ describe("Challenge verification", () => {
     }));
 
     expect(res.status).toBe(200);
-    await expect(collectStream(res)).resolves.toBe('{"why":{"statement":"Test"}}');
-    expect(mockStreamText).toHaveBeenCalledTimes(1);
+    expect(await collectStream(res)).toContain('"type":"final"');
+    expect(mockRunAnalysis).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       expect.objectContaining({
@@ -422,7 +430,7 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(503);
     await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
-    expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockRunAnalysis).not.toHaveBeenCalled();
   });
 
   it("accepts TURNSTILE_SECRET_KEY_FILE when Turnstile is enabled", async () => {
@@ -435,9 +443,7 @@ describe("Challenge verification", () => {
     process.env.TURNSTILE_SECRET_KEY_FILE = createSecretFile("turnstile-secret.txt", "file-secret");
     const fetchMock = mockProductionFetch();
 
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () { yield "{}"; })(),
-    });
+    analysisOnce();
 
     const res = await POST(makeReq({
       headers: { "x-client-ip": "203.0.113.10" },
@@ -445,7 +451,7 @@ describe("Challenge verification", () => {
     }));
 
     expect(res.status).toBe(200);
-    await expect(collectStream(res)).resolves.toBe("{}");
+    expect(await collectStream(res)).toContain('"type":"final"');
     const challengeBody = String(fetchMock.mock.calls[1]?.[1]?.body ?? "");
     expect(challengeBody).toContain("secret=file-secret");
   });
@@ -460,9 +466,7 @@ describe("Challenge verification", () => {
     process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
     const fetchMock = mockProductionFetch();
 
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () { yield "{}"; })(),
-    });
+    analysisOnce();
 
     const res = await POST(makeReq({
       headers: { "x-client-ip": "203.0.113.10" },
@@ -470,7 +474,7 @@ describe("Challenge verification", () => {
     }));
 
     expect(res.status).toBe(200);
-    await expect(collectStream(res)).resolves.toBe("{}");
+    expect(await collectStream(res)).toContain('"type":"final"');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
@@ -480,25 +484,21 @@ describe("Happy path", () => {
     setNodeEnv("production");
     setDeploymentMode("local");
 
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () { yield "{}"; })(),
-    });
+    analysisOnce();
 
     const res = await POST(makeReq({}));
     expect(res.status).toBe(200);
-    await expect(collectStream(res)).resolves.toBe("{}");
+    expect(await collectStream(res)).toContain('"type":"final"');
   });
 
   it("accepts a null turnstileToken when Turnstile is not configured", async () => {
     // The client sends `turnstileToken: null` whenever the widget is absent;
     // the type guard must treat null like undefined, not reject it as malformed.
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () { yield "{}"; })(),
-    });
+    analysisOnce();
 
     const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, turnstileToken: null } }));
     expect(res.status).toBe(200);
-    await expect(collectStream(res)).resolves.toBe("{}");
+    expect(await collectStream(res)).toContain('"type":"final"');
   });
 
   it("rejects a non-string, non-null turnstileToken as malformed", async () => {
@@ -507,100 +507,35 @@ describe("Happy path", () => {
     await expect(res.json()).resolves.toEqual({ error: "turnstileToken must be a string." });
   });
 
-  it("streams the model response text", async () => {
-    const chunks = ['{"why":', '{"statement":"Test"}}'];
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () {
-        for (const c of chunks) yield c;
-      })(),
-    });
+  it("streams a final analysis event as ndjson", async () => {
+    analysisOnce();
 
     const req = makeReq({});
     const res = await POST(req);
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/plain");
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
     expect(res.headers.get("cache-control")).toBe("no-store");
 
-    const text = await collectStream(res);
-    expect(text).toBe('{"why":{"statement":"Test"}}');
-  });
-});
-
-describe("Streaming edge cases", () => {
-  it("skips chunks with empty/undefined delta content", async () => {
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () {
-        yield undefined as unknown as string;
-        yield "";
-        yield "{}";
-      })(),
-    });
-    const res = await POST(makeReq({}));
-    expect(res.status).toBe(200);
-    await expect(collectStream(res)).resolves.toBe("{}");
-  });
-
-  it("rejects a prompt-injected response that emits the error sentinel before the JSON", async () => {
-    streamOnce('__ERROR__leaked attacker text{"why":1}');
-    const res = await POST(makeReq({}));
-    const text = await collectStream(res);
-    expect(text).toBe("__ERROR__Analysis failed. Please try again.");
-    expect(text).not.toContain("leaked attacker text");
-  });
-
-  it("reports a timeout when the SDK aborts (APIUserAbortError)", async () => {
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () {
-        throw Object.assign(new Error("Request was aborted."), { name: "APIUserAbortError" });
-      })(),
-    });
-    const res = await POST(makeReq({}));
-    const text = await collectStream(res);
-    expect(text).toContain("timed out");
-  });
-
-  it("cuts off and does not cache a response that exceeds the server byte cap", async () => {
-    // Stream a valid JSON opening so the prefix-check passes immediately,
-    // then a long payload that pushes assembled length past 32 KB.
-    const opener = '{"why":"';
-    const filler = "x".repeat(40 * 1024);
-    mockStreamText.mockReturnValue({
-      textStream: (async function* () {
-        yield opener;
-        yield filler;
-        // This chunk must never be forwarded — the cap should have closed the stream.
-        yield '","trailing":true}';
-      })(),
-    });
-
-    const res = await POST(makeReq({}));
-    const text = await collectStream(res);
-    expect(text.endsWith("__ERROR__Response exceeded maximum size.")).toBe(true);
-    expect(text).not.toContain('"trailing":true');
-    // Let any fire-and-forget cache write settle, then confirm the next call
-    // still goes upstream (truncated payloads must never be cached).
-    await new Promise((r) => setTimeout(r, 0));
-    streamOnce(VALID_RESULT);
-    const second = await POST(makeReq({}));
-    await expect(collectStream(second)).resolves.toBe(VALID_RESULT);
-    expect(mockStreamText).toHaveBeenCalledTimes(2);
+    const body = await collectStream(res);
+    expect(body).toContain('"type":"final"');
+    expect(body).toContain("We believe in clarity.");
   });
 });
 
 describe("Input sanitization", () => {
-  it("strips HTML tags from the business idea before prompting the model", async () => {
-    streamOnce("{}");
+  it("strips HTML tags from the business idea before running the analysis", async () => {
+    analysisOnce();
     const idea = "Our mission <script>alert(1)</script> is to help people thrive every day for sure.";
     await POST(makeReq({ body: { businessIdea: idea } }));
-    const prompt = userPromptOf();
-    expect(prompt).not.toContain("<script>");
-    expect(prompt).not.toContain("</script>");
+    const text = inputOf().text ?? "";
+    expect(text).not.toContain("<script>");
+    expect(text).not.toContain("</script>");
   });
 
   it("truncates the business idea to MAX_INPUT_LENGTH", async () => {
-    streamOnce("{}");
+    analysisOnce();
     await POST(makeReq({ body: { businessIdea: "Z".repeat(2500) } }));
-    const zCount = (userPromptOf().match(/Z/g) ?? []).length;
+    const zCount = ((inputOf().text ?? "").match(/Z/g) ?? []).length;
     expect(zCount).toBe(MAX_INPUT_LENGTH);
   });
 });
@@ -610,30 +545,32 @@ describe("Refinement", () => {
     const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, refinement: "nonsense" } }));
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error: "Invalid refinement." });
-    expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockRunAnalysis).not.toHaveBeenCalled();
   });
 
-  it("injects the allowlisted refinement directive into the prompt", async () => {
-    streamOnce("{}");
+  it("passes the allowlisted refinement through to the analysis", async () => {
+    analysisOnce();
     const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, refinement: "why" } }));
     expect(res.status).toBe(200);
     await collectStream(res);
-    expect(userPromptOf()).toContain("sharpen and deepen the WHY");
+    expect(inputOf().refinement).toBe("why");
   });
 });
 
 describe("Response cache", () => {
-  it("serves an identical input from cache without calling the model twice", async () => {
-    streamOnce(VALID_RESULT);
+  it("serves an identical input from cache without running the analysis twice", async () => {
+    analysisOnce();
 
     const first = await POST(makeReq({}));
-    await expect(collectStream(first)).resolves.toBe(VALID_RESULT);
+    expect(await collectStream(first)).toContain('"type":"final"');
     // Let the fire-and-forget cache write settle.
     await new Promise((r) => setTimeout(r, 0));
 
     const second = await POST(makeReq({}));
-    await expect(collectStream(second)).resolves.toBe(VALID_RESULT);
+    const secondBody = await collectStream(second);
+    expect(secondBody).toContain('"type":"final"');
+    expect(secondBody).toContain("We believe in clarity.");
 
-    expect(mockStreamText).toHaveBeenCalledTimes(1);
+    expect(mockRunAnalysis).toHaveBeenCalledTimes(1);
   });
 });
