@@ -67,7 +67,7 @@ describe("runAnalysis reflection loop", () => {
     expect(events.at(-1)).toMatchObject({ type: "final", result: refined });
   });
 
-  it("emits an error event and rethrows when a step throws", async () => {
+  it("emits an error event and rethrows when analyze (the draft) fails", async () => {
     const mod = await import("@/lib/agent/steps/analyze");
     vi.mocked(mod.analyzeStep).mockRejectedValueOnce(new Error("model down"));
     const events: AgentEvent[] = [];
@@ -75,5 +75,25 @@ describe("runAnalysis reflection loop", () => {
       runAnalysis({ mode: "idea", text: "x", refinement: null }, ctxWith(events)),
     ).rejects.toThrow("model down");
     expect(events.at(-1)).toMatchObject({ type: "error" });
+  });
+
+  it("falls back to the draft (no error) when critique fails", async () => {
+    vi.mocked(critiqueStep).mockRejectedValueOnce(new Error("bad critique json"));
+    const events: AgentEvent[] = [];
+    const result = await runAnalysis({ mode: "idea", text: "x", refinement: null }, ctxWith(events));
+    expect(result).toEqual(draft);
+    expect(events.at(-1)).toMatchObject({ type: "final", result: draft });
+    expect(events.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("falls back to the draft (no error) when refine fails after a failing critique", async () => {
+    const refineMod = await import("@/lib/agent/steps/refine");
+    vi.mocked(critiqueStep).mockResolvedValueOnce(failing as never);
+    vi.mocked(refineMod.refineStep).mockRejectedValueOnce(new Error("refine timeout"));
+    const events: AgentEvent[] = [];
+    const result = await runAnalysis({ mode: "idea", text: "x", refinement: null }, ctxWith(events));
+    expect(result).toEqual(draft);
+    expect(events.at(-1)).toMatchObject({ type: "final", result: draft });
+    expect(events.some((e) => e.type === "error")).toBe(false);
   });
 });
