@@ -2,14 +2,15 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import InputForm from '@/components/InputForm';
-import LoadingState from '@/components/LoadingState';
+import AgentProgress, { type StepView } from '@/components/AgentProgress';
 import ResultSection from '@/components/ResultSection';
 import ThemeToggle from '@/components/ThemeToggle';
 import FrameworkIntro from '@/components/FrameworkIntro';
 import RecentAnalyses from '@/components/RecentAnalyses';
 import type { AnalysisResult } from '@/types';
 import type { RefinementKey } from '@/lib/prompt';
-import { parseAnalysis, sanitizeOutputString } from '@/lib/validate-analysis';
+import { analysisSchema } from '@/lib/analysis-schema';
+import { parseEventLines, type AgentEvent } from '@/lib/agent/events';
 import { decodeAnalysisFromHash } from '@/lib/share-link';
 import {
   listAnalyses,
@@ -42,6 +43,8 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [steps, setSteps] = useState<StepView[]>([]);
+  const [score, setScore] = useState<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   // The base idea behind the current result, so "refine" can re-run it.
   const lastInputRef = useRef<string>('');
@@ -104,6 +107,8 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
       }, CLIENT_TIMEOUT_MS);
 
       setError(null);
+      setSteps([]);
+      setScore(null);
       setAppState('loading');
 
       try {
@@ -123,38 +128,35 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
         if (!reader) throw new Error('No response stream');
 
         const decoder = new TextDecoder();
-        let fullText = '';
+        let buffer = '';
+        let finalResult: AnalysisResult | null = null;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          fullText += decoder.decode(value, { stream: true });
-          if (fullText.length > 64_000) {
-            throw new Error("Response too large. Please try again.");
+          buffer += decoder.decode(value, { stream: true });
+          const { events, rest } = parseEventLines(buffer);
+          buffer = rest;
+          for (const event of events as AgentEvent[]) {
+            if (event.type === 'step') {
+              setSteps((prev) => [...prev, { step: event.step, status: event.status }]);
+            } else if (event.type === 'critique') {
+              setScore(event.critique.overall);
+            } else if (event.type === 'final') {
+              finalResult = event.result as AnalysisResult;
+            } else if (event.type === 'error') {
+              throw new Error(event.message);
+            }
           }
         }
-        // Flush any remaining buffered bytes from the decoder
-        fullText += decoder.decode();
 
-        // Check for server-side error signal. Cap and strip the suffix so a
-        // prompt-injected response can never surface bidi/zero-width chars or
-        // control codes in the error toast. Reuses the same allowlist applied
-        // to validated LLM output for consistency.
-        if (fullText.startsWith('__ERROR__')) {
-          const raw = sanitizeOutputString(fullText.slice(9, 300)).trim();
-          throw new Error(raw || 'Analysis failed. Please try again.');
+        if (!finalResult || !analysisSchema.safeParse(finalResult).success) {
+          throw new Error('Received a malformed analysis. Please try again.');
         }
 
-        let parsed;
-        try {
-          parsed = parseAnalysis(fullText);
-        } catch {
-          throw new Error('Could not parse the AI response. Please try again.');
-        }
-
-        setResult(parsed);
+        setResult(finalResult);
         setAppState('result');
-        setHistory(saveAnalysis(trimmed, parsed));
+        setHistory(saveAnalysis(trimmed, finalResult));
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') {
           // Timeout aborts surface a message; user/unmount aborts stay silent.
@@ -239,7 +241,7 @@ export default function GoldenCircleApp({ turnstileSiteKey }: GoldenCircleAppPro
             />
           </>
         )}
-        {appState === 'loading' && <LoadingState />}
+        {appState === 'loading' && <AgentProgress steps={steps} score={score} />}
         {appState === 'result' && result && (
           <ResultSection
             result={result}
