@@ -289,8 +289,9 @@ export async function POST(req: Request) {
         }
       } catch (err: unknown) {
         logger.error("upstream error", { reqId, err: err instanceof Error ? err.message : String(err) });
-        // The OpenAI SDK raises APIUserAbortError (not AbortError) when the
-        // signal fires, so match on a broader set of names/messages.
+        // The AI SDK (OpenAI-compatible provider underneath) surfaces an abort
+        // as APIUserAbortError (not AbortError) during stream iteration, so
+        // match on a broader set of names/messages.
         const isTimeout =
           err instanceof Error &&
           (/abort|timeout/i.test(err.name) || /abort|timed?\s*out/i.test(err.message));
