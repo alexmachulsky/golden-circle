@@ -3,22 +3,16 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// ── Shared mock for the chat-completions create — replaced per-test as needed ─
-const mockCreate = vi.fn();
+// ── Shared mock for the streamText call — replaced per-test as needed ─
+const mockStreamText = vi.fn();
 const originalFetch = global.fetch;
 const DEFAULT_IDEA = "A business idea that is at least fifty characters long for testing.";
 const tempDirs: string[] = [];
 
-// ── Mock the openai SDK before importing the route ──────────────────────────
-// The route calls OpenRouter (OpenAI-compatible) via the official `openai`
-// client; the streaming chunk shape is identical to the previous groq-sdk.
-vi.mock('openai', () => {
-  return {
-    default: class MockOpenAI {
-      chat = { completions: { create: mockCreate } };
-    },
-  };
-});
+// ── Mock the AI SDK streamText before importing the route ──────────────────
+vi.mock("ai", () => ({
+  streamText: (opts: unknown) => mockStreamText(opts),
+}));
 
 // ── Mock config so origin / rate-limit values are controlled ────────────────
 vi.mock('@/lib/config', () => ({
@@ -52,15 +46,13 @@ const VALID_RESULT = JSON.stringify({
 });
 
 function userPromptOf(call: number = 0): string {
-  return String(mockCreate.mock.calls[call]?.[0]?.messages?.[1]?.content ?? "");
+  return String(mockStreamText.mock.calls[call]?.[0]?.prompt ?? "");
 }
 
 function streamOnce(text: string) {
-  mockCreate.mockResolvedValue(
-    (async function* () {
-      yield { choices: [{ delta: { content: text } }] };
-    })(),
-  );
+  mockStreamText.mockReturnValue({
+    textStream: (async function* () { yield text; })(),
+  });
 }
 
 function setNodeEnv(value: string): void {
@@ -153,7 +145,7 @@ async function collectStream(res: Response): Promise<string> {
 }
 
 beforeEach(() => {
-  mockCreate.mockReset();
+  mockStreamText.mockReset();
   _resetStoreForTesting();
   _resetCacheForTesting();
   process.env.OPENROUTER_API_KEY = "test-key";
@@ -239,11 +231,9 @@ describe("Body size guard", () => {
 
 describe("Rate limit guard", () => {
   it("returns 429 after exceeding the per-minute limit", async () => {
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        yield { choices: [{ delta: { content: "{}" } }] };
-      })(),
-    );
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () { yield "{}"; })(),
+    });
 
     const results: number[] = [];
     for (let i = 0; i < 7; i++) {
@@ -299,7 +289,9 @@ describe("Error message hygiene", () => {
   });
 
   it("streams generic __ERROR__ message, not raw exception, on upstream failure", async () => {
-    mockCreate.mockRejectedValue(new Error("Internal provider error 500 secret details"));
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () { throw new Error("Internal provider error 500 secret details"); })(),
+    });
 
     const req = makeReq({});
     const res = await POST(req);
@@ -316,11 +308,9 @@ describe("Runtime secret files", () => {
     delete process.env.OPENROUTER_API_KEY;
     process.env.OPENROUTER_API_KEY_FILE = createSecretFile("groq-api-key.txt", "file-backed-key");
 
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        yield { choices: [{ delta: { content: "{}" } }] };
-      })(),
-    );
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () { yield "{}"; })(),
+    });
 
     const res = await POST(makeReq({}));
     expect(res.status).toBe(200);
@@ -346,7 +336,7 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({ error: "Verification required." });
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -365,7 +355,7 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(503);
     await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -380,7 +370,7 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({ error: "Verification failed." });
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -388,13 +378,11 @@ describe("Challenge verification", () => {
     enableProductionChallenge();
     const fetchMock = mockProductionFetch();
     const chunks = ['{"why":', '{"statement":"Test"}}'];
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        for (const chunk of chunks) {
-          yield { choices: [{ delta: { content: chunk } }] };
-        }
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () {
+        for (const c of chunks) yield c;
       })(),
-    );
+    });
 
     const res = await POST(makeReq({
       headers: { "x-client-ip": "203.0.113.10" },
@@ -403,7 +391,7 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(200);
     await expect(collectStream(res)).resolves.toBe('{"why":{"statement":"Test"}}');
-    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockStreamText).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       expect.objectContaining({
@@ -434,7 +422,7 @@ describe("Challenge verification", () => {
 
     expect(res.status).toBe(503);
     await expect(res.json()).resolves.toEqual({ error: "Service unavailable." });
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
   });
 
   it("accepts TURNSTILE_SECRET_KEY_FILE when Turnstile is enabled", async () => {
@@ -447,11 +435,9 @@ describe("Challenge verification", () => {
     process.env.TURNSTILE_SECRET_KEY_FILE = createSecretFile("turnstile-secret.txt", "file-secret");
     const fetchMock = mockProductionFetch();
 
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        yield { choices: [{ delta: { content: "{}" } }] };
-      })(),
-    );
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () { yield "{}"; })(),
+    });
 
     const res = await POST(makeReq({
       headers: { "x-client-ip": "203.0.113.10" },
@@ -474,11 +460,9 @@ describe("Challenge verification", () => {
     process.env.TURNSTILE_SECRET_KEY = "turnstile-secret";
     const fetchMock = mockProductionFetch();
 
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        yield { choices: [{ delta: { content: "{}" } }] };
-      })(),
-    );
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () { yield "{}"; })(),
+    });
 
     const res = await POST(makeReq({
       headers: { "x-client-ip": "203.0.113.10" },
@@ -496,11 +480,9 @@ describe("Happy path", () => {
     setNodeEnv("production");
     setDeploymentMode("local");
 
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        yield { choices: [{ delta: { content: "{}" } }] };
-      })(),
-    );
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () { yield "{}"; })(),
+    });
 
     const res = await POST(makeReq({}));
     expect(res.status).toBe(200);
@@ -510,11 +492,9 @@ describe("Happy path", () => {
   it("accepts a null turnstileToken when Turnstile is not configured", async () => {
     // The client sends `turnstileToken: null` whenever the widget is absent;
     // the type guard must treat null like undefined, not reject it as malformed.
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        yield { choices: [{ delta: { content: "{}" } }] };
-      })(),
-    );
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () { yield "{}"; })(),
+    });
 
     const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, turnstileToken: null } }));
     expect(res.status).toBe(200);
@@ -529,13 +509,11 @@ describe("Happy path", () => {
 
   it("streams the model response text", async () => {
     const chunks = ['{"why":', '{"statement":"Test"}}'];
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        for (const chunk of chunks) {
-          yield { choices: [{ delta: { content: chunk } }] };
-        }
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () {
+        for (const c of chunks) yield c;
       })(),
-    );
+    });
 
     const req = makeReq({});
     const res = await POST(req);
@@ -550,13 +528,13 @@ describe("Happy path", () => {
 
 describe("Streaming edge cases", () => {
   it("skips chunks with empty/undefined delta content", async () => {
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        yield { choices: [{ delta: {} }] };               // no content
-        yield { choices: [{ delta: { content: undefined } }] };
-        yield { choices: [{ delta: { content: "{}" } }] };
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () {
+        yield undefined as unknown as string;
+        yield "";
+        yield "{}";
       })(),
-    );
+    });
     const res = await POST(makeReq({}));
     expect(res.status).toBe(200);
     await expect(collectStream(res)).resolves.toBe("{}");
@@ -571,7 +549,11 @@ describe("Streaming edge cases", () => {
   });
 
   it("reports a timeout when the SDK aborts (APIUserAbortError)", async () => {
-    mockCreate.mockRejectedValue(Object.assign(new Error("Request was aborted."), { name: "APIUserAbortError" }));
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () {
+        throw Object.assign(new Error("Request was aborted."), { name: "APIUserAbortError" });
+      })(),
+    });
     const res = await POST(makeReq({}));
     const text = await collectStream(res);
     expect(text).toContain("timed out");
@@ -582,14 +564,14 @@ describe("Streaming edge cases", () => {
     // then a long payload that pushes assembled length past 32 KB.
     const opener = '{"why":"';
     const filler = "x".repeat(40 * 1024);
-    mockCreate.mockResolvedValue(
-      (async function* () {
-        yield { choices: [{ delta: { content: opener } }] };
-        yield { choices: [{ delta: { content: filler } }] };
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () {
+        yield opener;
+        yield filler;
         // This chunk must never be forwarded — the cap should have closed the stream.
-        yield { choices: [{ delta: { content: '","trailing":true}' } }] };
+        yield '","trailing":true}';
       })(),
-    );
+    });
 
     const res = await POST(makeReq({}));
     const text = await collectStream(res);
@@ -601,7 +583,7 @@ describe("Streaming edge cases", () => {
     streamOnce(VALID_RESULT);
     const second = await POST(makeReq({}));
     await expect(collectStream(second)).resolves.toBe(VALID_RESULT);
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockStreamText).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -628,7 +610,7 @@ describe("Refinement", () => {
     const res = await POST(makeReq({ body: { businessIdea: DEFAULT_IDEA, refinement: "nonsense" } }));
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error: "Invalid refinement." });
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
   });
 
   it("injects the allowlisted refinement directive into the prompt", async () => {
@@ -652,6 +634,6 @@ describe("Response cache", () => {
     const second = await POST(makeReq({}));
     await expect(collectStream(second)).resolves.toBe(VALID_RESULT);
 
-    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockStreamText).toHaveBeenCalledTimes(1);
   });
 });

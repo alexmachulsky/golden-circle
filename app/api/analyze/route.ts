@@ -1,5 +1,4 @@
-import OpenAI from "openai";
-import { SYSTEM_PROMPT, buildUserPrompt, REFINEMENTS, type RefinementKey } from "@/lib/prompt";
+import { REFINEMENTS, type RefinementKey } from "@/lib/prompt";
 import { ALLOWED_ORIGINS, RATE_LIMIT_PER_MIN, TRUSTED_IP_HEADER } from "@/lib/config";
 import {
   HttpError,
@@ -18,18 +17,13 @@ import {
 
 import { MIN_INPUT_LENGTH, MAX_INPUT_LENGTH } from "@/lib/constants";
 import { logger, newRequestId } from "@/lib/logger";
+import { getModel } from "@/lib/agent/llm";
+import { runAnalysisStream } from "@/lib/agent/graph";
 
 // ── AI provider ───────────────────────────────────────────────────────────
-// Groq (original provider) used the groq-sdk client + "llama-3.3-70b-versatile".
-// We now call OpenRouter, which is OpenAI-compatible, via the official `openai`
-// SDK pointed at OpenRouter's baseURL. (The groq-sdk hardcodes the path
-// "/openai/v1/chat/completions", which does not match OpenRouter's
-// "/api/v1/chat/completions", so it cannot be repointed by baseURL alone.)
-// The streaming chunk shape is identical, so the rest of the route is unchanged.
-// `:free` variant — same model weights, billed at $0 (subject to OpenRouter's
-// free-tier daily request cap). Drop the `:free` suffix to use the paid variant.
-const MODEL = "openai/gpt-oss-120b:free";
-const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+// The streaming is now routed through the agent graph (AI SDK) instead of
+// calling OpenRouter directly. getModel() and runAnalysisStream() handle
+// LLM invocation, while the route preserves all guards, caching, and error handling.
 const BODY_LIMIT_BYTES = 8 * 1024; // 8 KB - well above the MAX_INPUT_LENGTH-char input maximum
 // gpt-oss-120b is a large, comparatively slow model: a full Golden Circle
 // generation measures ~25-30s. The previous 30s budget (tuned for Groq's fast
@@ -197,17 +191,7 @@ export async function POST(req: Request) {
   }
   logger.info("analyze", { reqId, cache: "miss", status: 200 });
 
-  // ── Stream the OpenRouter (OpenAI-compatible) response ──────────────────
-  // Groq (original): const client = new Groq({ apiKey });
-  const client = new OpenAI({
-    apiKey,
-    baseURL: OPENROUTER_BASE_URL,
-    // Optional OpenRouter attribution headers (used for their dashboard ranking).
-    defaultHeaders: {
-      "HTTP-Referer": ALLOWED_ORIGINS[0] ?? "http://localhost:7001",
-      "X-Title": "Golden Circle Analyzer",
-    },
-  });
+  // ── Stream the analysis via the agent graph (AI SDK) ──────────────────────
   const encoder = new TextEncoder();
 
   const readable = new ReadableStream({
@@ -219,30 +203,17 @@ export async function POST(req: Request) {
       req.signal.addEventListener('abort', () => ac.abort(), { once: true });
 
       try {
-        const stream = await client.chat.completions.create(
-          {
-            model: MODEL,
-            // The schema (WHY + 4 HOW + 3 WHAT + notes, each 1-2 sentences) needs
-            // well over 1024 tokens; too low truncates the JSON mid-object and the
-            // client's parseAnalysis then fails ("Could not parse the AI response").
-            // gpt-oss-120b is markedly more verbose than the prior Llama model and
-            // may also spend tokens on reasoning, so we give generous headroom.
-            max_tokens: 4096,
-            stream: true,
-            messages: [
-              { role: "system", content: SYSTEM_PROMPT },
-              { role: "user", content: buildUserPrompt(sanitized, refinement) },
-            ],
-          },
-          { signal: ac.signal },
+        const model = getModel(apiKey);
+        const stream = runAnalysisStream(
+          { mode: "idea", text: sanitized, refinement },
+          { model, signal: ac.signal },
         );
 
         let accumulated = "";
         let checkedPrefix = false;
         let fullResponse = "";
 
-        for await (const chunk of stream) {
-          const text = chunk.choices[0]?.delta?.content;
+        for await (const text of stream) {
           if (text) {
             // Guard against a prompt-injected LLM response that starts with
             // the error sentinel.  Buffer until we see the first '{' (start of
