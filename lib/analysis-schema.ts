@@ -7,7 +7,7 @@ import { z } from "zod";
 export const citationSchema = z.object({
   claim: z.string(),
   source: z.string(),
-  url: z.string().url().optional(),
+  url: z.url().optional(),
 });
 
 export const analysisSchema = z.object({

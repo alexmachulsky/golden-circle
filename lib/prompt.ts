@@ -96,6 +96,47 @@ Analyze this business idea and produce a rigorous Golden Circle breakdown. Remem
   return base;
 }
 
+// ── Reflection-loop prompts (P1) ────────────────────────────────────────────
+export const CRITIQUE_SYSTEM_PROMPT = `You are a ruthless strategy editor reviewing a Golden Circle analysis.
+Score the draft 1-5 on each axis (5 = excellent):
+- specificity: concrete, non-obvious, tailored to THIS business (not boilerplate)
+- nongeneric: a competitor could NOT paste the same text into their deck
+- fidelity: correct use of the framework (WHY is a belief that passes the product-swap test; HOW are ownable; WHAT framed as proof of the WHY)
+- actionability: a founder could act on it
+Set "overall" to the mean of the four scores. List concrete "weaknesses" (each names the exact item, e.g. "HOW #2"). Set "pass" to true only if every individual score is >= 4. Respond with the structured object only.`;
+
+export function buildCritiquePrompt(businessIdea: string, draft: unknown): string {
+  return `<business_idea>
+${businessIdea}
+</business_idea>
+
+<draft_analysis>
+${JSON.stringify(draft)}
+</draft_analysis>
+
+Critique the draft against the rubric.`;
+}
+
+export const REFINE_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+You are REVISING an existing draft to fix specific weaknesses. Keep what works; rewrite weak items to be more specific and ownable. Preserve exactly 4 HOW and 3 WHAT items.`;
+
+export function buildRefinePrompt(businessIdea: string, draft: unknown, weaknesses: string[]): string {
+  return `<business_idea>
+${businessIdea}
+</business_idea>
+
+<previous_draft>
+${JSON.stringify(draft)}
+</previous_draft>
+
+<weaknesses_to_fix>
+${weaknesses.map((w) => `- ${w}`).join("\n")}
+</weaknesses_to_fix>
+
+Produce an improved analysis addressing every weakness.`;
+}
+
 export const EXAMPLES = [
   {
     label: 'FreshBox',
